@@ -52,6 +52,7 @@
     {
       "plugin": "github.repo-ops",
       "paths": [
+        ".github/workflows/job-sonar.yml",
         ".github/workflows/job-tested.yml",
         ".github/workflows/wheel.yml",
         "Makefile",
@@ -82,6 +83,13 @@
       "plugin": "pypi.publish",
       "paths": [
         "src/pubrules/cli.py"
+      ],
+      "mode": "required"
+    },
+    {
+      "plugin": "sonarcloud.read",
+      "paths": [
+        ".github/workflows/job-sonar.yml"
       ],
       "mode": "required"
     },

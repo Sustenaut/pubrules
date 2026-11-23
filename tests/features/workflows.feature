@@ -74,7 +74,14 @@ Feature: The reusable workflows parse as GitHub reads them
       | rust-ci.yml   |
       | python-ci.yml |
       | node-ci.yml   |
-      | job-sonar.yml |
+
+  Scenario: The sonar job sends its code to SonarQube Cloud when given a token, and its gate step decides on the result
+    When I parse the workflow "job-sonar.yml"
+    Then it takes an optional SONAR_TOKEN secret
+    And its "sonar" job runs the pinned SonarQube scan only when the token is set
+    And the scan names the project OWNER_REPO in the organization owner, lower-cased unless pubrules.json names it
+    And without a token it warns, unless the pull request comes from a fork
+    And the gate step fails the job on a failed quality gate
 
   Scenario Outline: A package's reusable workflow gives SonarQube Cloud the tests' coverage
     When I parse the workflow "<workflow>"
