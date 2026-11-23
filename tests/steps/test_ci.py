@@ -423,7 +423,7 @@ def scan_either_way(repo, name):
     assert spec["if"] == "${{ !failure() && !cancelled() }}"
     assert spec["needs"][0] == "tested"
     assert spec["with"]["coverage-run"] == "${{ needs.tested.outputs.run-id }}"
-    assert spec["permissions"] == {"actions": "read", "contents": "read"}
+    assert spec["permissions"] == {"actions": "read", "contents": "read", "pull-requests": "read"}
 
 
 @then(parsers.parse('in "{name}" passed takes a job skipped for the queue\'s run as passed'))

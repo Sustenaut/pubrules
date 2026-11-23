@@ -677,7 +677,9 @@ def workflow(ci: dict[str, Any], event: str) -> str:
         out.append(f"    uses: {ci['owner']}/pubrules/.github/workflows/{job.workflow}"
                    f"@{ref(__version__, ci['commit'])}\n")
         if scan:
-            out.append("    permissions:\n      actions: read\n      contents: read\n")
+            # pull-requests: so the sonar job can read the label (sonar-down)
+            # of the pull request merged into the commit it scans.
+            out.append("    permissions:\n      actions: read\n      contents: read\n      pull-requests: read\n")
         if given:
             out.append(f"    with: {flow(given)}\n")
         # By name, not `secrets: inherit`: GitHub hands inherited secrets

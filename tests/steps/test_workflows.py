@@ -174,6 +174,19 @@ def sonar_gate(workflow):
     assert args.index("-Dsonar.qualitygate.wait=true") < args.index("${{")
 
 
+@then("the gate step fails the job on a failed quality gate")
+def gate_step(workflow):
+    """The scan only uploads (the gate step asks SonarQube Cloud for the gate
+    after it), and the gate step runs even when the scan failed."""
+    steps = workflow["data"]["jobs"]["sonar"]["steps"]
+    scan = next(s for s in steps if s.get("id") == "scan")
+    assert "-Dsonar.qualitygate.wait=false" in scan["with"]["args"].split()
+    gate = next(s for s in steps if s.get("id") == "gate")
+    assert steps.index(gate) > steps.index(scan)
+    assert gate["env"]["SCAN"] == "${{ steps.scan.outcome }}"
+    assert "if" in gate and "success()" not in gate["if"]
+
+
 @then("every action it uses is pinned to a full commit hash, with its version in a comment")
 def pinned(workflow):
     for line in workflow["text"].splitlines():

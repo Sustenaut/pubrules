@@ -80,15 +80,125 @@ jobs:
           organization=$(jq -r '.security.sonar.organization // ""' pubrules.json 2>/dev/null || true)
           echo "organization=${organization:-${OWNER,,}}" >> "$GITHUB_OUTPUT"
         env: { OWNER: '${{ github.repository_owner }}' }
+      # The pull request's label that lets an outage through. Read for every
+      # run, a push to main too (the pull request merged into it); a run that
+      # cannot read it counts as unlabelled.
       - if: env.SONAR_TOKEN != ''
+        id: label
+        uses: Sustenaut/pubrules/actions/pr-label@c847823ea0256b08a3811264e43571277c7aac7a # v0.46.0
+        continue-on-error: true
+        with: { label: sonar-down }
+      # The scan uploads the analysis and does not wait for the quality gate:
+      # the next step asks for it, so a gate that failed and SonarQube Cloud
+      # being unreachable, which the scanner reports alike, can be told apart.
+      - if: env.SONAR_TOKEN != ''
+        id: scan
         uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6.0.0
+        continue-on-error: true
         with:
           args: >-
             -Dsonar.organization=${{ steps.settings.outputs.organization }}
             -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}
-            -Dsonar.qualitygate.wait=true
-            -Dsonar.qualitygate.timeout=300
+            -Dsonar.qualitygate.wait=false
             ${{ inputs.layout }}
             ${{ steps.report.outputs.args }}
             ${{ inputs.sonar-args }}
             ${{ steps.settings.outputs.args }}
+      # What the analysis means for the job:
+      #   - SonarQube Cloud answered and the gate failed (or it refused the
+      #     query, or the scan itself was wrong while it answers): the job
+      #     fails, whatever labels the pull request has. A finding is never
+      #     bypassed.
+      #   - SonarQube Cloud gave no answer after three tries (unreachable,
+      #     5xx, or an analysis not done in five minutes): an outage. The job
+      #     fails, unless the pull request carries the label sonar-down, which
+      #     lets it pass with a warning and a note in the job's summary that
+      #     the commit was not analysed. The next run on main analyses it.
+      - if: env.SONAR_TOKEN != ''
+        id: gate
+        shell: bash
+        env:
+          SCAN: ${{ steps.scan.outcome }}
+          LABELLED: ${{ steps.label.outputs.present }}
+        run: |
+          set -uo pipefail
+          report=.scannerwork/report-task.txt
+          timeout="${TIMEOUT:-300}"
+          tries="${TRIES:-3}"
+          pause="${PAUSE:-10}"
+          body=""
+          code=""
+          say() { echo "$*"; echo "$*" >> "$GITHUB_STEP_SUMMARY"; }
+          fail() { echo "::error::$*"; exit 1; }
+          # One call to SonarQube Cloud: $code is the HTTP status, 000 for no
+          # answer at all, and $body what came back.
+          request() {
+            local out
+            if out="$(curl -sS --max-time 30 -u "$SONAR_TOKEN:" -w '\n%{http_code}' "$1" 2> /dev/null)"; then
+              code="${out##*$'\n'}"
+              body="${out%$'\n'*}"
+            else
+              code=000
+              body=""
+            fi
+          }
+          # request, again after a pause while there is no answer (000 or 5xx);
+          # 1 when there never was one.
+          ask() {
+            local attempt
+            for ((attempt = 1; attempt <= tries; attempt++)); do
+              request "$1"
+              if [[ "$code" != 000 && "$code" != 5* ]]; then return 0; fi
+              if ((attempt < tries)); then sleep "$pause"; fi
+            done
+            return 1
+          }
+          outage() {
+            if [[ "${LABELLED:-}" == true ]]; then
+              echo "::warning::SonarQube Cloud gave no answer ($1), and the pull request carries the label sonar-down: this commit was NOT analysed."
+              say "### SonarQube Cloud was bypassed"
+              say "SonarQube Cloud gave no answer ($1). The pull request carries the label \`sonar-down\`, so this job passed without an analysis. The next run on main, once SonarQube Cloud is back, analyses the code: look at its result."
+              exit 0
+            fi
+            fail "SonarQube Cloud gave no answer ($1). If it is down, add the label sonar-down to the pull request and run the job again. The label counts only when SonarQube Cloud gives no answer, and never passes a failed gate."
+          }
+          server=https://sonarcloud.io
+          if [[ -f "$report" ]]; then
+            server="$(sed -n 's/^serverUrl=//p' "$report")"
+            server="${server:-https://sonarcloud.io}"
+          fi
+          if [[ ! -f "$report" ]]; then
+            if [[ "$SCAN" == success ]]; then fail "The scan passed but wrote no $report."; fi
+            # No analysis was accepted: SonarQube Cloud is either out of reach
+            # (an outage) or there and refusing, or the scan was wrong. Any
+            # answer, even a 404, shows it is there.
+            if ask "$server/api/server/version"; then
+              fail "The scan failed, and SonarQube Cloud answers ($code): see the scan step's log. Not an outage, so nothing is bypassed."
+            fi
+            outage "the scan failed and $server does not answer"
+          fi
+          task_url="$(sed -n 's/^ceTaskUrl=//p' "$report")"
+          if [[ -z "$task_url" ]]; then fail "$report names no ceTaskUrl."; fi
+          deadline=$((SECONDS + timeout))
+          analysis=""
+          while :; do
+            ask "$task_url" || outage "$task_url does not answer"
+            if [[ "$code" != 200 ]]; then fail "SonarQube Cloud refused the analysis task ($code)."; fi
+            status="$(jq -r '.task.status // ""' <<< "$body")"
+            case "$status" in
+              SUCCESS) analysis="$(jq -r '.task.analysisId // ""' <<< "$body")"; break ;;
+              FAILED | CANCELED) fail "SonarQube Cloud's analysis of this commit ended $status." ;;
+            esac
+            if ((SECONDS >= deadline)); then outage "the analysis was not done after ${timeout}s"; fi
+            sleep "${POLL:-5}"
+          done
+          ask "$server/api/qualitygates/project_status?analysisId=$analysis" || outage "the quality gate does not answer"
+          if [[ "$code" != 200 ]]; then fail "SonarQube Cloud refused the quality gate query ($code)."; fi
+          gate="$(jq -r '.projectStatus.status // ""' <<< "$body")"
+          case "$gate" in
+            OK | WARN) echo "SonarQube Cloud's quality gate: $gate" ;;
+            ERROR)
+              failed="$(jq -r '[.projectStatus.conditions[]? | select(.status == "ERROR") | .metricKey] | join(", ")' <<< "$body")"
+              fail "SonarQube Cloud's quality gate failed${failed:+ on: $failed}." ;;
+            *) fail "SonarQube Cloud's quality gate is \"$gate\": a project's first analysis has no conditions to pass. Run the job again after it." ;;
+          esac
