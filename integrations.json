@@ -86,6 +86,13 @@
       "mode": "required"
     },
     {
+      "plugin": "sonarcloud.read",
+      "paths": [
+        ".github/workflows/job-sonar.yml"
+      ],
+      "mode": "required"
+    },
+    {
       "plugin": "sonarcloud.scan",
       "paths": [
         ".github/workflows/**",
