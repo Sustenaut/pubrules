@@ -122,7 +122,49 @@ Feature: The sonar job tells a failed quality gate from SonarQube Cloud being do
     Then the step passed
     And it warned "this commit was NOT analysed"
 
-  Scenario: The scan uploads without waiting, and the label is read before the gate
+  Scenario: The label is read from GitHub when the outage is met, not from the event
+    Given the scan failed and the scanner wrote no report
+    And the pull request carries the label sonar-down
+    And the event payload has no label
+    When the gate step runs
+    Then the step passed
+    And it warned "this commit was NOT analysed"
+
+  Scenario: A push to main reads the label of the pull request merged into it
+    Given the scan failed and the scanner wrote no report
+    And the run is for a push to main, whose merged pull request carries the label sonar-down
+    When the gate step runs
+    Then the step passed
+    And it warned "this commit was NOT analysed"
+
+  Scenario: A pull request of a pushed commit that was not merged does not count
+    Given the scan failed and the scanner wrote no report
+    And the run is for a push to main, whose pull request that was not merged carries the label sonar-down
+    When the gate step runs
+    Then the step failed with the error "gave no answer"
+
+  Scenario: A label that cannot be read counts as no label
+    Given the scan failed and the scanner wrote no report
+    And GitHub's API refuses to give the pull request
+    When the gate step runs
+    Then the step failed with the error "gave no answer"
+
+  Scenario: A report naming another server is not followed with the token
+    Given the scan passed
+    And the scanner wrote a report naming the server "https://evil.example"
+    When the gate step runs
+    Then the step failed with the error "names a server other than https://sonarcloud.io"
+    And no request went to "evil.example"
+
+  Scenario: A report naming a task on another server is not followed with the token
+    Given the scan passed
+    And the scanner wrote a report naming the task "https://evil.example/api/ce/task?id=1"
+    When the gate step runs
+    Then the step failed with the error "names no ceTaskUrl at https://sonarcloud.io"
+    And no request went to "evil.example"
+
+  Scenario: The scan uploads without waiting, and the scanner's folder is removed before it
     When I read the sonar job
     Then its scan step does not wait for the quality gate and may fail
-    And its steps run in the order "label", "scan", "gate"
+    And the scanner's folder is removed before the scan
+    And its steps run in the order "scan", "gate"

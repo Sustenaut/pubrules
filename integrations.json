@@ -52,6 +52,7 @@
     {
       "plugin": "github.repo-ops",
       "paths": [
+        ".github/workflows/job-sonar.yml",
         ".github/workflows/job-tested.yml",
         ".github/workflows/wheel.yml",
         "Makefile",

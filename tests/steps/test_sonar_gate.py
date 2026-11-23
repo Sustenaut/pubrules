@@ -21,6 +21,7 @@ SERVER = "https://sonarcloud.io"
 TASK = f"{SERVER}/api/ce/task?id=AX1"
 GATE = f"{SERVER}/api/qualitygates/project_status?analysisId=AN1"
 VERSION = f"{SERVER}/api/server/version"
+GITHUB = "https://api.github.com/repos/o/r"
 
 # Answers a request from api/<url with every other character an underscore>.<n>,
 # the nth time it is asked (the last one for every time after), as
@@ -29,6 +30,7 @@ VERSION = f"{SERVER}/api/server/version"
 # is what the step asks for, so the status is printed after the body.
 CURL = """#!/bin/bash
 url="${*: -1}"
+echo "$url" >> "$API/../requests"
 key="$(printf '%s' "$url" | tr -c 'A-Za-z0-9' _)"
 files=("$API"/"$key".*)
 [ -e "${files[0]}" ] || exit 7
@@ -39,8 +41,9 @@ last=${#files[@]}
 [ "$n" -gt "$last" ] && n=$last
 file="$API/$key.$n"
 status="$(head -n 1 "$file")"
+case " $* " in *" -fsS "*) [ "$status" -ge 400 ] && exit 22 ;; esac
 tail -n +2 "$file"
-printf '\\n%s' "$status"
+case " $* " in *" -w "*) printf '\\n%s' "$status" ;; esac
 """
 
 
@@ -56,25 +59,72 @@ def step():
 @pytest.fixture
 def world(tmp_path):
     (tmp_path / "api").mkdir()
-    return {"work": tmp_path, "scan": "success", "labelled": "", "env": {}, "answers": {}}
+    return {"work": tmp_path, "scan": "success", "env": {"EVENT": "pull_request", "PR_NUMBER": "7"}, "answers": {}}
 
 
 def answer(world, url, status, body=""):
     world["answers"].setdefault(url, []).append((status, body))
 
 
+def write_report(world, server=SERVER, task=TASK):
+    folder = world["work"] / ".scannerwork"
+    folder.mkdir()
+    (folder / "report-task.txt").write_text(f"projectKey=o_r\nserverUrl={server}\nceTaskUrl={task}\n")
+
+
 @given(parsers.re(r"the scan (?P<how>passed|failed) and the scanner wrote (?P<report>a report|no report)"))
 def scan(world, how, report):
     world["scan"] = "success" if how == "passed" else "failure"
     if report == "a report":
-        folder = world["work"] / ".scannerwork"
-        folder.mkdir()
-        (folder / "report-task.txt").write_text(f"projectKey=o_r\nserverUrl={SERVER}\nceTaskUrl={TASK}\n")
+        write_report(world)
+
+
+@given("the scan passed")
+def scan_passed(world):
+    world["scan"] = "success"
+
+
+@given(parsers.parse('the scanner wrote a report naming the server "{server}"'))
+def report_server(world, server):
+    write_report(world, server=server)
+
+
+@given(parsers.parse('the scanner wrote a report naming the task "{task}"'))
+def report_task(world, task):
+    write_report(world, task=task)
 
 
 @given("the pull request carries the label sonar-down")
 def labelled(world):
-    world["labelled"] = "true"
+    """As GitHub's API says now. The event's own payload is never read: it
+    has no label here, as when a failed run is run again."""
+    answer(world, f"{GITHUB}/pulls/7", 200, json.dumps({"labels": [{"name": "bug"}, {"name": "Sonar-Down"}]}))
+
+
+@given("the run is for a push to main, whose merged pull request carries the label sonar-down")
+def pushed_labelled(world):
+    world["env"].update(EVENT="push")
+    answer(world, f"{GITHUB}/commits/abc123/pulls", 200, json.dumps([
+        {"merged_at": None, "labels": [{"name": "sonar-down"}]},
+        {"merged_at": "2026-11-23T10:00:00Z", "labels": [{"name": "sonar-down"}]}]))
+
+
+@given("the run is for a push to main, whose pull request that was not merged carries the label sonar-down")
+def pushed_unmerged(world):
+    world["env"].update(EVENT="push")
+    answer(world, f"{GITHUB}/commits/abc123/pulls", 200, json.dumps([
+        {"merged_at": None, "labels": [{"name": "sonar-down"}]}]))
+
+
+@given("the event payload has no label")
+def payload_bare(world):
+    (world["work"] / "event.json").write_text(json.dumps({"pull_request": {"number": 7, "labels": []}}))
+    world["env"]["GITHUB_EVENT_PATH"] = str(world["work"] / "event.json")
+
+
+@given("GitHub's API refuses to give the pull request")
+def label_refused(world):
+    answer(world, f"{GITHUB}/pulls/7", 403)
 
 
 @given(parsers.parse("the analysis may take {seconds:d} seconds"))
@@ -129,10 +179,12 @@ def run(world):
         capture_output=True, text=True, check=False, cwd=work,
         env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "API": str(work / "api"),
              "SLEPT": str(work / "slept"), "GITHUB_STEP_SUMMARY": str(summary), "SONAR_TOKEN": "t",
-             "SCAN": world["scan"], "LABELLED": world["labelled"], **world["env"]})
+             "SCAN": world["scan"], "GITHUB_API": "https://api.github.com", "GH_TOKEN": "g",
+             "GITHUB_REPOSITORY": "o/r", "GITHUB_SHA": "abc123", **world["env"]})
     return {"code": done.returncode, "lines": done.stdout.splitlines(),
             "slept": (work / "slept").read_text().split() if (work / "slept").exists() else [],
-            "summary": summary.read_text() if summary.exists() else ""}
+            "summary": summary.read_text() if summary.exists() else "",
+            "requests": (work / "requests").read_text().split() if (work / "requests").exists() else []}
 
 
 @then("the step passed")
@@ -162,6 +214,11 @@ def warned(ran, text):
     assert any(line.startswith("::warning::") and text in line for line in ran["lines"]), ran
 
 
+@then(parsers.parse('no request went to "{host}"'))
+def no_request(ran, host):
+    assert not any(host in url for url in ran["requests"]), ran
+
+
 @then("the job's summary says SonarQube Cloud was bypassed")
 def summarised(ran):
     assert "SonarQube Cloud was bypassed" in ran["summary"], ran
@@ -186,6 +243,13 @@ def scan_step():
     scan_step = next(s for s in steps_of() if s.get("id") == "scan")
     assert "-Dsonar.qualitygate.wait=false" in scan_step["with"]["args"]
     assert scan_step["continue-on-error"] is True
+
+
+@then("the scanner's folder is removed before the scan")
+def folder_removed():
+    steps = steps_of()
+    ids = [s.get("id") or s.get("run") for s in steps]
+    assert ids.index("rm -rf .scannerwork") < ids.index("scan"), ids
 
 
 @then(parsers.re(r'its steps run in the order (?P<ids>"[a-z]+"(?:, "[a-z]+")*)$'))

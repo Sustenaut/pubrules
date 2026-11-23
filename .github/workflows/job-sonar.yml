@@ -80,14 +80,10 @@ jobs:
           organization=$(jq -r '.security.sonar.organization // ""' pubrules.json 2>/dev/null || true)
           echo "organization=${organization:-${OWNER,,}}" >> "$GITHUB_OUTPUT"
         env: { OWNER: '${{ github.repository_owner }}' }
-      # The pull request's label that lets an outage through. Read for every
-      # run, a push to main too (the pull request merged into it); a run that
-      # cannot read it counts as unlabelled.
+      # A report a pull request committed would name any host for the gate
+      # step to send SONAR_TOKEN to: only the scanner's own is read.
       - if: env.SONAR_TOKEN != ''
-        id: label
-        uses: Sustenaut/pubrules/actions/pr-label@c847823ea0256b08a3811264e43571277c7aac7a # v0.46.0
-        continue-on-error: true
-        with: { label: sonar-down }
+        run: rm -rf .scannerwork
       # The scan uploads the analysis and does not wait for the quality gate:
       # the next step asks for it, so a gate that failed and SonarQube Cloud
       # being unreachable, which the scanner reports alike, can be told apart.
@@ -119,7 +115,10 @@ jobs:
         shell: bash
         env:
           SCAN: ${{ steps.scan.outcome }}
-          LABELLED: ${{ steps.label.outputs.present }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_API: ${{ github.api_url }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
           report=.scannerwork/report-task.txt
@@ -153,8 +152,27 @@ jobs:
             done
             return 1
           }
+          # Whether the pull request this run is for carries sonar-down, read
+          # now, never from the event: "Re-run failed jobs" replays the event
+          # as it was, so a label added during the outage would not be seen.
+          # A pull request's own number, or the pull requests merged into a
+          # pushed commit. Any failure to read it counts as no label.
+          labelled() {
+            local names
+            case "$EVENT" in
+              pull_request | pull_request_target)
+                names="$(curl -fsS --max-time 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+                  "$GITHUB_API/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" 2> /dev/null | jq -r '.labels[]?.name' 2> /dev/null)" || return 1 ;;
+              push)
+                names="$(curl -fsS --max-time 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+                  "$GITHUB_API/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" 2> /dev/null \
+                  | jq -r '.[] | select(.merged_at != null) | .labels[]?.name' 2> /dev/null)" || return 1 ;;
+              *) return 1 ;;
+            esac
+            grep -qix 'sonar-down' <<< "$names"
+          }
           outage() {
-            if [[ "${LABELLED:-}" == true ]]; then
+            if labelled; then
               echo "::warning::SonarQube Cloud gave no answer ($1), and the pull request carries the label sonar-down: this commit was NOT analysed."
               say "### SonarQube Cloud was bypassed"
               say "SonarQube Cloud gave no answer ($1). The pull request carries the label \`sonar-down\`, so this job passed without an analysis. The next run on main, once SonarQube Cloud is back, analyses the code: look at its result."
@@ -163,9 +181,10 @@ jobs:
             fail "SonarQube Cloud gave no answer ($1). If it is down, add the label sonar-down to the pull request and run the job again. The label counts only when SonarQube Cloud gives no answer, and never passes a failed gate."
           }
           server=https://sonarcloud.io
-          if [[ -f "$report" ]]; then
-            server="$(sed -n 's/^serverUrl=//p' "$report")"
-            server="${server:-https://sonarcloud.io}"
+          # The scanner's report, which this job just made (the scan step's
+          # folder was removed before it), still names only SonarQube Cloud.
+          if [[ -f "$report" && "$(sed -n 's/^serverUrl=//p' "$report")" != "$server" ]]; then
+            fail "$report names a server other than $server."
           fi
           if [[ ! -f "$report" ]]; then
             if [[ "$SCAN" == success ]]; then fail "The scan passed but wrote no $report."; fi
@@ -178,7 +197,7 @@ jobs:
             outage "the scan failed and $server does not answer"
           fi
           task_url="$(sed -n 's/^ceTaskUrl=//p' "$report")"
-          if [[ -z "$task_url" ]]; then fail "$report names no ceTaskUrl."; fi
+          if [[ "$task_url" != "$server/"* ]]; then fail "$report names no ceTaskUrl at $server."; fi
           deadline=$((SECONDS + timeout))
           analysis=""
           while :; do
