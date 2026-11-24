@@ -66,3 +66,9 @@ def lists(repo, words, targets):
                          capture_output=True, text=True, check=True).stdout
     listed = re.findall(r"^\s+([a-z-]+)\s", out, re.M)
     assert set(targets.split(", ")) <= set(listed), out
+
+
+@then(parsers.parse('"{words}" runs "{first}" then "{second}"'))
+def runs_in_order(repo, words, first, second):
+    out = [line.split("/bin/", 1)[-1] for line in _make(repo, words).splitlines()]
+    assert out == [first, second], out

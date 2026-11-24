@@ -69,7 +69,7 @@ SHIPPED = {
     "actions": ("apt-install", "cache", "pr-label", "retry", "terraform-init"),
     "workflows": (
         "job-node-audit.yml", "job-node-browser.yml", "job-node-test.yml", "job-osv.yml",
-        "job-python-audit.yml", "job-python-browser.yml", "job-python-functional.yml",
+        "job-python-audit.yml", "job-python-browser.yml", "job-python-functional.yml", "job-python-lint.yml",
         "job-review.yml", "job-rust-audit.yml", "job-rust-cross.yml", "job-rust-functional.yml",
         "job-rust-fuzz.yml", "job-rust-gates.yml", "job-rust-msrv.yml", "job-rust-test.yml",
         "job-rust-toolchains.yml", "job-service-checks.yml", "job-service-terraform.yml",

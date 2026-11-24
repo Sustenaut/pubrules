@@ -21,6 +21,7 @@ Feature: The reusable workflows parse as GitHub reads them
       | job-python-functional.yml |
       | job-python-browser.yml    |
       | job-python-audit.yml      |
+      | job-python-lint.yml       |
       | job-sonar.yml             |
       | job-rust-gates.yml        |
       | job-rust-test.yml         |
@@ -127,6 +128,7 @@ Feature: The reusable workflows parse as GitHub reads them
       | job-python-functional.yml |
       | job-python-browser.yml    |
       | job-python-audit.yml      |
+      | job-python-lint.yml       |
       | job-osv.yml               |
       | job-review.yml            |
       | job-sonar.yml             |

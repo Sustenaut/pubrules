@@ -1,6 +1,6 @@
 Feature: Every Python package runs its suite by the same make targets
   A Python package's Makefile includes pubrules-python.mk, which pubrules
-  manages: its venv, functional, lock, sync-check, wheel, clean and help.
+  manages: its venv, functional, lint, fmt, lock, sync-check, wheel, clean and help.
   The suite runs on every core (pytest-xdist) and its coverage, the
   workers' and the programs' it starts, is combined into
   coverage/coverage.xml. sync --check holds every package to it.
@@ -20,7 +20,13 @@ Feature: Every Python package runs its suite by the same make targets
     Then "make functional" runs pytest with "-n auto" and writes coverage/coverage.xml
     And "make functional PYTEST_ARGS=" runs pytest without "-n"
     And "make functional FUNCTIONAL_ENV=PYTHONPATH=src" runs the suite with "PYTHONPATH=src"
-    And "make help" lists "venv, functional, lock, sync-check, wheel, clean, check"
+    And "make help" lists "venv, functional, lint, fmt, lock, sync-check, wheel, clean, check"
+
+  Scenario: make lint runs Ruff's lint and format checks, and make fmt applies them
+    Given a Python package
+    When I run pubrules "sync"
+    Then "make lint" runs "ruff check ." then "ruff format --check ."
+    And "make fmt" runs "ruff check --fix ." then "ruff format ."
 
   Scenario: A Makefile of its own that does not include pubrules-python.mk fails the check
     Given a Python package

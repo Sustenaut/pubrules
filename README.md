@@ -76,7 +76,7 @@ when `pubrules.json` still names an old one.
 Files are **managed**, owned by pubrules and rewritten by `sync`, or
 **seeded**, written once by `init` and the repository's own after that.
 
-- **Managed:** `tests/requirements-pubrules.txt` (the shared pins and the pubrules wheel), `pubrules` (below), and `AGENTS.md`, the working rules agents and people follow in every repository, starting with when a pull request is draft (below). For a Rust package, also `pubrules.mk`, `rust-toolchain.toml`, and the crate standard with its agent (below). For a Python package (a utility whose CI is Python's), `pubrules-python.mk`: the make targets every Python package shares (`venv`, `functional`, `lock`, `sync-check`, `wheel`, `clean`, `help`), with the suite on every core (`PYTEST_ARGS ?= -n auto`) and its coverage in `coverage/coverage.xml`. Set `PYTEST_ARGS`, `FUNCTIONAL_ENV` (variables the suite needs, such as `PYTHONPATH=$(CURDIR)/src`) or `EDITABLE` (what `venv` installs editable; empty for nothing) in the Makefile, before the include. `sync --check` fails until the Makefile includes it and `pyproject.toml`'s `[tool.coverage.run]` sets `patch = ["subprocess"]` and `parallel = true`, so the coverage of xdist's workers and of the programs the suite starts is combined. For a service, `with-secrets`. A content repository has the common files only.
+- **Managed:** `tests/requirements-pubrules.txt` (the shared pins and the pubrules wheel), `pubrules` (below), and `AGENTS.md`, the working rules agents and people follow in every repository, starting with when a pull request is draft (below). For a Rust package, also `pubrules.mk`, `rust-toolchain.toml`, and the crate standard with its agent (below). For a Python package (a utility whose CI is Python's), `pubrules-python.mk`: the make targets every Python package shares (`venv`, `functional`, `lint`, `fmt`, `lock`, `sync-check`, `wheel`, `clean`, `help`), with the suite on every core (`PYTEST_ARGS ?= -n auto`) and its coverage in `coverage/coverage.xml`. Set `PYTEST_ARGS`, `FUNCTIONAL_ENV` (variables the suite needs, such as `PYTHONPATH=$(CURDIR)/src`) or `EDITABLE` (what `venv` installs editable; empty for nothing) in the Makefile, before the include. `sync --check` fails until the Makefile includes it and `pyproject.toml`'s `[tool.coverage.run]` sets `patch = ["subprocess"]` and `parallel = true`, so the coverage of xdist's workers and of the programs the suite starts is combined. For a service, `with-secrets`. For a Python package or a service whose ci block gives a `lint` command, `pubrules-ruff.toml`, the Python standard (below). A content repository has the common files only.
 - **Seeded:** `tests/requirements.txt` (includes the managed one), `tests/pytest.ini`, `.github/workflows/ci.yml`, for a Rust package a `Makefile` that includes `pubrules.mk` (for a Python package, one that includes `pubrules-python.mk` and adds `check`), and for a service `with-secrets.json`.
 - **Healed:** `.gitignore` is the repository's own, but it must ignore `.env`, where local tools read secrets (`./with-secrets` its Bitwarden token). `init` and `sync` append `.env` when it's missing, with a comment above it, and leave the rest of the file as it is; `sync --check` fails until it's there. A pattern that already covers it, such as `/.env` or `.env*`, counts, and a later `!.env` takes it back.
 
@@ -181,6 +181,49 @@ files, and needs no `--project`.
 - **Nightly:** governed like any other repository: the nightly moves its
   pubrules, its lock, the workflows' and actions' pins, any release wheel
   its requirements files pin and any pub* package they pin by name.
+
+## The Python standard: Ruff, and the lint job
+
+A Python package or a service turns the Python standard on with one setting, a
+lint command in its ci block:
+
+```json
+"ci": {"with": {"setup": "make venv", "test": "make functional", "lint": "make lint"}}
+```
+
+Then:
+
+- the CI `pubrules sync` writes runs a `lint` job (`job-python-lint.yml`,
+  `ci / lint`, part of `ci / passed`): `setup` (by default `make venv`), then the
+  lint command, with Ruff's findings shown on the pull request's lines;
+- `pubrules-ruff.toml` is managed: the shared rules, Ruff's defaults (pyflakes
+  and pycodestyle's errors) with flake8-bugbear (`B`), flake8-simplify (`SIM`),
+  pyupgrade (`UP`), isort (`I`) and pylint's size limits (`PLR0911`, `PLR0912`,
+  `PLR0913`, `PLR0915`, at pylint's own limits), a line length of 120, and Ruff's
+  formatter;
+- `tests/requirements-pubrules.txt` pins the Ruff those rules are written for,
+  so the rules and the tool move together, with pubrules, and `sync --check`
+  fails until `tests/requirements.lock` pins it (`pubrules lock`);
+- `sync --check` fails until `pyproject.toml` takes the rules in, and while it
+  loosens them:
+
+```toml
+[tool.ruff]
+extend = "pubrules-ruff.toml"
+```
+
+A repository may make the rules stricter (`lint.extend-select`) and name the
+files a rule does not fit (`lint.per-file-ignores`). It may not set
+`line-length`, `lint.select`, `lint.ignore` or `lint.extend-ignore` (or their
+top-level spellings): those are the standard's. A single exception is a
+`# noqa: CODE` on its line, with the reason beside it.
+
+`pubrules-python.mk` gives every Python package `make lint` (`ruff check .`,
+then `ruff format --check .`, as CI runs them) and `make fmt` (Ruff's safe
+fixes, then the formatter). A service writes the same two targets in its own
+Makefile. CI is the gate: there are no pre-commit hooks. Without a lint
+command, nothing here applies, so each repository turns the standard on when
+its code is ready for it. A Node, Rust or content repository has no lint job.
 
 ## Hosting
 
@@ -1165,7 +1208,7 @@ A Rust repository runs the jobs the Rust crate standard asks for here, worked ou
 
 Uploading a coverage report and restoring or saving a cache only help a run: none of them fails a job. GitHub's artifact and cache services can refuse a run (when the account's Actions billing is blocked they answer with an HTML page, on self-hosted runners too), so every `upload-artifact` of a report and every `actions/cache` step in pubrules' workflows, and every restore and save in `actions/cache`, runs with `continue-on-error`, and the workflow steps stop trying after five minutes. A test that fails still fails its job; a refused upload only leaves the scan without that coverage.
 
-A service runs `checks` (the sync check and shellcheck) and `sonar`, and `terraform` and `tests` when `with` gives a `terraform-dir` and a `test`. Its tests hand `sonar` the coverage they write to `coverage-report` (by default `coverage/`, Cobertura XML or LCOV `lcov.info`). `with`'s `apt-packages` names Ubuntu packages its tests job installs first, through `actions/apt-install`, from the Actions cache when an earlier run installed them (`"apt-packages": "tippecanoe"`); a content repository's tests take it too. A private service drops the scan with `"jobs": {"sonar": false}`. A content repository runs `checks` (shellcheck on `**/*.sh` unless `with` gives `shellcheck`) and, when `with` gives a `test`, `tests`, and has no `sonar`.
+A service runs `checks` (the sync check and shellcheck) and `sonar`, and `terraform` and `tests` when `with` gives a `terraform-dir` and a `test`. Its tests hand `sonar` the coverage they write to `coverage-report` (by default `coverage/`, Cobertura XML or LCOV `lcov.info`). `with`'s `apt-packages` names Ubuntu packages its tests job installs first, through `actions/apt-install`, from the Actions cache when an earlier run installed them (`"apt-packages": "tippecanoe"`); a content repository's tests take it too. A Python package or a service also runs `lint` when `with` gives a `lint` command ("The Python standard" above). A private service drops the scan with `"jobs": {"sonar": false}`. A content repository runs `checks` (shellcheck on `**/*.sh` unless `with` gives `shellcheck`) and, when `with` gives a `test`, `tests`, and has no `sonar`.
 
 A repository that deploys a static site with pubhost's `deploy-static` also gets a `site` job in `pr.yml` (`ci / site`, part of `ci / passed`), so a site that would fail to deploy fails the pull request instead of the deploy after merge. It checks the repository out, builds the site, and runs the `deploy-static` the repository's own deploy workflow pins, as it pins it, with `check-only: 'true'`, which runs its site check and deploys nothing, so it needs no secret. The job comes when any workflow of the repository's own uses `deploy-static`, or pubrules.json has a `site` block, which then needs such a workflow to take the pin from:
 

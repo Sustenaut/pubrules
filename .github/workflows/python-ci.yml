@@ -209,6 +209,7 @@ jobs:
               pkg:githubactions/Sustenaut/pubrules/.github/workflows/job-python-audit.yml,
               pkg:githubactions/Sustenaut/pubrules/.github/workflows/job-python-browser.yml,
               pkg:githubactions/Sustenaut/pubrules/.github/workflows/job-python-functional.yml,
+              pkg:githubactions/Sustenaut/pubrules/.github/workflows/job-python-lint.yml,
               pkg:githubactions/Sustenaut/pubrules/.github/workflows/job-review.yml,
               pkg:githubactions/Sustenaut/pubrules/.github/workflows/job-rust-audit.yml,
               pkg:githubactions/Sustenaut/pubrules/.github/workflows/job-rust-cross.yml,

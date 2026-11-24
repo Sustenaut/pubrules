@@ -270,6 +270,28 @@ Feature: pubrules sync writes a repository's CI from pubrules.json, with no skip
     Then it succeeds
     And "pr.yml" runs the jobs "tested, checks, passed"
 
+  Scenario: A service's lint command adds the lint job, beside its checks and tests
+    Given a service repository whose ci block is '{"with": {"setup": "make venv", "test": "make functional", "lint": "make lint"}}'
+    And a file "pyproject.toml" holding "tool.ruff.extend = 'pubrules-ruff.toml'"
+    When I run pubrules "sync"
+    Then it succeeds
+    And "pr.yml" runs the jobs "tested, checks, tests, lint, sonar, passed"
+    And in "pr.yml" the "lint" job is given "lint" "make lint"
+    And in "pr.yml" the "lint" job is given "setup" "make venv"
+
+  Scenario: A Python package's lint command adds the lint job
+    Given a Python repository whose ci block is '{"release": false, "with": {"lint": "make lint"}}'
+    And a file "pyproject.toml" holding "tool = {ruff = {extend = 'pubrules-ruff.toml'}, coverage = {run = {patch = ['subprocess'], parallel = true}}}"
+    When I run pubrules "sync"
+    Then it succeeds
+    And "pr.yml" runs the jobs "tested, functional, lint, audit, osv, review, sonar, passed"
+    And in "pr.yml" the "lint" job is given "lint" "make lint"
+
+  Scenario: Without a lint command there is no lint job
+    Given a service repository whose ci block is '{"with": {"test": "make functional"}}'
+    When I run pubrules "sync"
+    Then "pr.yml" runs the jobs "tested, checks, tests, sonar, passed"
+
   Scenario: The jobs block narrows a job's events or drops it
     Given a Node repository whose ci block is '{"jobs": {"review": false, "sonar": {"events": ["main"]}}}'
     When I run pubrules "sync"
@@ -578,6 +600,7 @@ Feature: pubrules sync writes a repository's CI from pubrules.json, with no skip
     Examples:
       | ci                                         | message                                         |
       | {"with": {"tests": "npm test"}}            | with gives tests, which no node job takes       |
+      | {"with": {"lint": "make lint"}}            | with gives lint, which no node job takes        |
       | {"events": ["weekly"]}                     | events must list some of pr, queue, main, nightly |
       | {"events": ["queue", "main"]}              | events lists queue without pr                   |
       | {"jobs": {"lint": false}}                  | jobs names lint, which node has not             |
@@ -601,6 +624,7 @@ Feature: pubrules sync writes a repository's CI from pubrules.json, with no skip
       | service | {"with": {"browser-test": "x"}} | with gives browser-test, which no service job takes |
       | content | {"release": true}           | release is not for a content repository, which pubrules neither releases nor deploys |
       | content | {"with": {"terraform-dir": "."}} | with gives terraform-dir, which no content job takes |
+      | content | {"with": {"lint": "make lint"}} | with gives lint, which no content job takes |
       | content | {"language": "python"}      | language is for a utility                 |
       | Rust    | {"language": "node"}        | language is for a utility                 |
 
