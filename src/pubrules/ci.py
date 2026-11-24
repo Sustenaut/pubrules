@@ -36,7 +36,9 @@ takes stops sync. A job runs on the events JOBS gives it unless `jobs`
 narrows them, and `false` drops it, as a private repository drops review.
 The browser job runs only when `with` gives a browser-test, and a
 service's terraform and tests jobs only when it gives a terraform-dir and
-a test. Rust's jobs are the ones the Rust crate standard asks for here,
+a test. A Python package's or a service's lint job (job-python-lint.yml,
+Ruff's check and format check with the managed pubrules-ruff.toml) runs
+only when `with` gives a lint command, such as "make lint". Rust's jobs are the ones the Rust crate standard asks for here,
 from the rules and pubrules.json's exceptions, and sync writes each job's
 required make targets into its workflow, so a change to either shows as a
 change there. `release` adds pubrel's release workflow to pr.yml,
@@ -186,6 +188,7 @@ JOBS: dict[str, dict[str, Job]] = {
         "browser": Job("job-python-browser.yml",
                        ("python-version", "apt-packages", "setup", "browser-setup", "browser-test",
                         "browser-coverage-report"), when="browser-test"),
+        "lint": Job("job-python-lint.yml", ("python-version", "setup", "lint"), when="lint"),
         "audit": Job("job-python-audit.yml", ("python-version", "audit-requirements")),
         "osv": Job("job-osv.yml"),
         "review": Job("job-review.yml", events=("pr",)),
@@ -228,6 +231,7 @@ JOBS: dict[str, dict[str, Job]] = {
         "terraform": Job("job-service-terraform.yml", ("terraform-dir",), when="terraform-dir"),
         "tests": Job("job-service-tests.yml", ("python-version", "apt-packages", "setup", "test", "coverage-report"),
                      when="test"),
+        "lint": Job("job-python-lint.yml", ("python-version", "setup", "lint"), when="lint"),
         "sonar": Job("job-sonar.yml", ("sonar-args",), needs=("tests",), secrets=True,
                      fixed={"reports": "sonar.python.coverage.reportPaths=*.xml "
                                        "sonar.javascript.lcov.reportPaths=lcov.info"},

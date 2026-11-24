@@ -1,0 +1,43 @@
+# Python's lint and format check: the hash-locked environment, then the
+# lint command (`make lint`: Ruff's check and format check, with the rules
+# of the managed pubrules-ruff.toml). It runs only where the ci block's
+# `with` gives a `lint`, so a repository turns it on with that one setting.
+#
+# One job of the CI `pubrules sync` writes from the ci block of pubrules.json
+# (src/pubrules/ci.py), so a repository runs only the jobs it asks for and
+# none shows as skipped.
+name: job-python-lint
+
+on:
+  workflow_call:
+    inputs:
+      runs-on: { type: string, default: ubuntu-latest, description: "The runner label the job runs on, from pubrules.json's ci.runs-on: a self-hosted runner scale set, or GitHub's ubuntu-latest." }
+      python-version: { type: string, default: '3.14' }
+      setup: { type: string, default: make venv, description: "Creates .venv from the hash-locked requirements, which pin ruff." }
+      lint: { type: string, required: true, description: "Runs the lint and format checks, such as make lint." }
+
+jobs:
+  lint:
+    runs-on: ${{ inputs.runs-on }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with: { python-version: '${{ inputs.python-version }}' }
+      # pip's and uv's download caches, keyed on the lock files, as the
+      # tests job keeps them: setup then installs from the runner's disk.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        continue-on-error: true
+        timeout-minutes: 5
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.cache/uv
+          key: python-lint-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('**/requirements*.lock', '**/requirements*.txt', '**/uv.lock') }}
+          restore-keys: python-lint-${{ runner.os }}-py${{ inputs.python-version }}-
+      - if: inputs.setup != ''
+        name: Set up, tried three times (a release download can time out)
+        uses: Sustenaut/pubrules/actions/retry@c847823ea0256b08a3811264e43571277c7aac7a # v0.46.0
+        with: { run: '${{ inputs.setup }}' }
+      # GitHub's annotations show each finding on the pull request's lines.
+      - run: ${{ inputs.lint }}
+        env: { RUFF_OUTPUT_FORMAT: github }

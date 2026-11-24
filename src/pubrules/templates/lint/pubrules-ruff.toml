@@ -1,0 +1,39 @@
+# Managed by pubrules {version}: `pubrules sync` rewrites this file, and
+# `pubrules sync --check` fails when it differs. It is the Python standard
+# every repository whose pubrules.json ci block gives a `lint` is held to:
+# pyproject.toml takes it in with
+#
+#   [tool.ruff]
+#   extend = "pubrules-ruff.toml"
+#
+# and adds only what makes it stricter (lint.extend-select) or names the
+# files a rule does not fit (lint.per-file-ignores). A single exception is a
+# `# noqa: CODE` on its line, with the reason beside it. Ruff's version is
+# pinned in tests/requirements-pubrules.txt, so the rules and the tool that
+# reads them move together, with pubrules.
+
+line-length = 120
+
+[lint]
+select = [
+  "E4", "E7", "E9", "F",  # Ruff's defaults: pyflakes and the pycodestyle errors
+  "B",                    # flake8-bugbear: likely bugs and design problems
+  "SIM",                  # flake8-simplify
+  "UP",                   # pyupgrade: the syntax of the Python requires-python names
+  "I",                    # isort: imports sorted and grouped
+  "PLR0911",              # too many return statements
+  "PLR0912",              # too many branches
+  "PLR0913",              # too many arguments
+  "PLR0915",              # too many statements
+]
+
+[lint.pylint]
+# Pylint's own limits, stated so a change to them is a change here.
+max-returns = 6
+max-branches = 12
+max-args = 5
+max-statements = 50
+
+[format]
+# Ruff's formatter, Black's style, at the line length above.
+docstring-code-format = true

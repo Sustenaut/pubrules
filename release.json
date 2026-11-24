@@ -19,6 +19,7 @@
     ".github/workflows/job-python-functional.yml",
     ".github/workflows/job-python-browser.yml",
     ".github/workflows/job-python-audit.yml",
+    ".github/workflows/job-python-lint.yml",
     ".github/workflows/job-osv.yml",
     ".github/workflows/job-review.yml",
     ".github/workflows/job-sonar.yml",

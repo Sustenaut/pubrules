@@ -95,6 +95,21 @@ PUBDEPLOY = "pubdeploy"
 # A Python package's shared make targets (templates/python/): managed, and
 # included by its seeded Makefile.
 PYTHON_MK = "pubrules-python.mk"
+# The Python standard (templates/lint/): managed where the ci block's `with`
+# gives a lint command, and taken in by pyproject.toml's [tool.ruff] extend.
+RUFF_CONFIG = "pubrules-ruff.toml"
+# The Ruff that reads it, pinned beside it in tests/requirements-pubrules.txt,
+# so the rules and the tool move together, with pubrules.
+RUFF = "0.17.6"
+RUFF_REQUIREMENT = ("# Ruff, which the lint job runs with pubrules-ruff.toml's rules (the ci\n"
+                    "# block's `with` gives a lint command):\n"
+                    f"ruff=={RUFF}\n")
+# What pyproject.toml's [tool.ruff] may not set over pubrules-ruff.toml: the
+# standard itself. A repository makes it stricter (lint.extend-select) or
+# names the files a rule does not fit (lint.per-file-ignores).
+RUFF_HELD = {"line-length": ("line-length",), "lint.select": ("lint", "select"),
+             "lint.ignore": ("lint", "ignore"), "lint.extend-ignore": ("lint", "extend-ignore"),
+             "select": ("select",), "ignore": ("ignore",), "extend-ignore": ("extend-ignore",)}
 CONFIG = "pubrules.json"
 LOCK = Path("tests/requirements.lock")
 REQUIREMENTS = Path("tests/requirements.txt")
@@ -143,6 +158,42 @@ def is_python(config: dict, root: Path) -> bool:
     return given == "python" if given else not is_node(root)
 
 
+def lints(config: dict) -> bool:
+    """Whether the ci block's `with` gives a lint command: then the lint job
+    runs, and pubrules-ruff.toml is managed here."""
+    ci = config.get("ci")
+    given = ci.get("with") if isinstance(ci, dict) else None
+    return isinstance(given, dict) and isinstance(given.get("lint"), str) and given["lint"] != ""
+
+
+def lint_problems(root: Path) -> list[str]:
+    """What keeps a repository that lints from Ruff's shared rules:
+    pyproject.toml's [tool.ruff] must extend pubrules-ruff.toml, and may not
+    set the standard's own settings over it."""
+    pyproject = root / "pyproject.toml"
+    extend = f'[tool.ruff] extend = "{RUFF_CONFIG}"'
+    if not pyproject.is_file():
+        return [f"the ci block gives a lint command, but there is no pyproject.toml to hold {extend}"]
+    import tomllib  # noqa: PLC0415
+    try:
+        ruff = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("tool", {}).get("ruff", {})
+    except tomllib.TOMLDecodeError as e:
+        return [f"pyproject.toml is not TOML ({e})"]
+    out = []
+    if ruff.get("extend") != RUFF_CONFIG:
+        out.append(f"pyproject.toml must take in the Python standard with {extend}, "
+                   "since the ci block gives a lint command")
+    for name, keys in RUFF_HELD.items():
+        node = ruff
+        for key in keys:
+            node = node.get(key) if isinstance(node, dict) else None
+        if node is not None:
+            out.append(f"pyproject.toml's [tool.ruff] sets {name}, which is {RUFF_CONFIG}'s: make it stricter "
+                       "with lint.extend-select, name the files a rule does not fit in lint.per-file-ignores, "
+                       "or put `# noqa: CODE` on the one line")
+    return out
+
+
 # The Makefile's line that takes pubrules-python.mk in.
 INCLUDES_PYTHON_MK = re.compile(r"^[ \t]*-?include[ \t]+(?:\$\(CURDIR\)/)?pubrules-python\.mk[ \t]*$", re.M)
 
@@ -158,7 +209,7 @@ def python_problems(root: Path) -> list[str]:
         out.append(f"there is no Makefile; `pubrules sync` seeds one that includes {PYTHON_MK}")
     elif not INCLUDES_PYTHON_MK.search(makefile.read_text(encoding="utf-8")):
         out.append(f"the Makefile does not include {PYTHON_MK}: put `include {PYTHON_MK}` at its top, "
-                   f"and drop the targets it defines (venv, functional, lock, sync-check, wheel, clean, help)")
+                   f"and drop the targets it defines (venv, functional, lint, fmt, lock, sync-check, wheel, clean, help)")
     pyproject = root / "pyproject.toml"
     if pyproject.is_file():
         import tomllib  # noqa: PLC0415
@@ -297,7 +348,8 @@ def values(config: dict[str, str], root: Path | None = None, launchers: frozense
            "providers": (fetch + "\n" if wheels or own else "") + launched + own,
            "launch": launch, "with": '"${with[@]}" ' if wheels else "", "mirror": mirror,
            "pypi": mirrors(config).get("pypi", ""),
-           "provider_requirements": provider_requirements(wheels), "pubtest": pubtest_requirement(root)}
+           "provider_requirements": provider_requirements(wheels), "pubtest": pubtest_requirement(root),
+           "ruff": RUFF_REQUIREMENT if lints(config) else ""}
     from .providers import PUBDEPLOY as DEPLOYS, PUBSEC as SECRETS, pinned  # noqa: PLC0415
     if SECRETS in launchers:
         wheel = pinned(root, config, SECRETS)
@@ -461,6 +513,10 @@ def sync(root: Path, check: bool) -> int:
         if not check and not (root / "Makefile").exists():
             (root / "Makefile").write_text(python_templates["Makefile"], encoding="utf-8")
             print("seeded   Makefile")
+    linted = lints(config)
+    if linted:
+        owned = [*owned, RUFF_CONFIG]
+        every = {**every, RUFF_CONFIG: templates("lint", ("lint",))[RUFF_CONFIG]}
     filled = values(config, root, frozenset(owned) & {PUBSEC, PUBDEPLOY})
     wanted = [(path, render(every[path], filled)) for path in owned]
     wanted += workflows(config, root)
@@ -508,6 +564,9 @@ def sync(root: Path, check: bool) -> int:
     lock = root / LOCK
     lock_stale = lock.exists() and not re.search(rf"^pubrules=={re.escape(__version__)}\b",
                                                  lock.read_text(encoding="utf-8"), re.M)
+    # The lint job runs the Ruff requirements-pubrules.txt pins, from the lock.
+    ruff_stale = linted and lock.exists() and not re.search(rf"^ruff=={re.escape(RUFF)}\b",
+                                                            lock.read_text(encoding="utf-8"), re.M)
     for path in replaced:
         why = ("pubrules.json has no deploy block, so it has no needs to check" if path == CALLER
                else "pubrules.json's ci block writes the workflows now")
@@ -536,6 +595,9 @@ def sync(root: Path, check: bool) -> int:
         if lock_stale:
             print(f"pubrules: {LOCK} does not pin pubrules {__version__}; run `pubrules lock`",
                   file=sys.stderr)
+        if ruff_stale:
+            print(f"pubrules: {LOCK} does not pin ruff {RUFF}, which the lint job runs; run `pubrules lock`",
+                  file=sys.stderr)
         from .refs import release_commit, stale_pins  # noqa: PLC0415
         actions, unversioned = stale_pins(root, __version__, release_commit())
         for problem in actions:
@@ -544,12 +606,12 @@ def sync(root: Path, check: bool) -> int:
             print(f"pubrules: {use} names no pubrules version, so `pubrules bump` leaves it as it is",
                   file=sys.stderr)
         unreported = unreported_checks(root, config)
-        python_bad = python_checks(root) if python else []
+        python_bad = (python_checks(root) if python else []) + (lint_checks(root) if linted else [])
         from .gherkin import run as gherkin  # noqa: PLC0415
         gherkin_lines, gherkin_bad = gherkin(root, config)
         for problem in gherkin_bad:
             print(f"pubrules: {problem}", file=sys.stderr)
-        if (stale or lock_stale or replaced or actions or unignored or deploy_failed or unreported or renamed
+        if (stale or lock_stale or ruff_stale or replaced or actions or unignored or deploy_failed or unreported or renamed
                 or python_bad or gherkin_bad):
             return 1
         print(f"in step with pubrules {__version__}")
@@ -563,17 +625,27 @@ def sync(root: Path, check: bool) -> int:
             return conform(root)
         return 0
     unreported = unreported_checks(root, config)
-    python_bad = python_checks(root) if python else []
+    python_bad = (python_checks(root) if python else []) + (lint_checks(root) if linted else [])
     if not stale and not unignored and not unreported and not python_bad:
         print(f"already in step with pubrules {__version__}")
     if lock_stale:
         print(f"now run `pubrules lock`: {LOCK} pins another pubrules")
+    elif ruff_stale:
+        print(f"now run `pubrules lock`: {LOCK} does not pin ruff {RUFF}, which the lint job runs")
     return 1 if unreported or python_bad else 0
 
 
 def python_checks(root: Path) -> list[str]:
     """python_problems, each printed."""
     problems = python_problems(root)
+    for problem in problems:
+        print(f"pubrules: {problem}", file=sys.stderr)
+    return problems
+
+
+def lint_checks(root: Path) -> list[str]:
+    """lint_problems, each printed."""
+    problems = lint_problems(root)
     for problem in problems:
         print(f"pubrules: {problem}", file=sys.stderr)
     return problems

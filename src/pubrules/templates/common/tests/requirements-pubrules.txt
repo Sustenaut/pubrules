@@ -13,4 +13,4 @@ hypothesis==6.170.5
 # whose steps pubrules' own files use.
 # pubtest floor: 0.4.0
 {pubtest}pubrules=={version}
-{provider_requirements}
+{ruff}{provider_requirements}
