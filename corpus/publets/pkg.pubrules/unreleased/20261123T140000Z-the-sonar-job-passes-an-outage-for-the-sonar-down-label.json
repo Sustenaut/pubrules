@@ -1,4 +1,0 @@
-{
-  "category": "added",
-  "change": "The sonar job of a generated ci block (job-sonar.yml) no longer lets SonarQube Cloud being down block a pull request or a deploy: its scan only uploads, and a gate step then asks SonarQube Cloud for the result. A failed or refused quality gate still fails the job, but when SonarQube Cloud gives no answer after three tries, the job passes with a warning and a note in its summary if the pull request carries the label sonar-down (for a push to main, the pull request merged into it). The main run's sonar job gets pull-requests: read for that."
-}

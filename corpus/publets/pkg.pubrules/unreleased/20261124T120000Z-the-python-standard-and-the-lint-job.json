@@ -1,4 +1,0 @@
-{
-  "category": "added",
-  "change": "The Python standard: a Python package or a service whose ci block's with gives a lint command (\"lint\": \"make lint\") gets a lint job (job-python-lint.yml, ci / lint) that runs setup and then that command, with Ruff's findings shown on the pull request. sync then manages pubrules-ruff.toml, the shared Ruff rules (Ruff's defaults with bugbear, simplify, pyupgrade, isort and pylint's size limits, line length 120, Ruff's formatter), and pins ruff 0.17.6 beside it in tests/requirements-pubrules.txt; sync --check fails until pyproject.toml's [tool.ruff] extends pubrules-ruff.toml, while it sets line-length, select, ignore or extend-ignore over it, and until tests/requirements.lock pins that Ruff. pubrules-python.mk gains make lint (ruff check, then ruff format --check) and make fmt."
-}
