@@ -69,7 +69,7 @@ jobs:
         env: { TARGET: '${{ matrix.target }}' }
       - if: steps.changes.outputs.slow != 'false'
         name: Install the target's linker and emulator, kept in the Actions cache
-        uses: Sustenaut/pubrules/actions/apt-install@c847823ea0256b08a3811264e43571277c7aac7a # v0.46.0
+        uses: Sustenaut/pubactions/actions/apt-install@b7e6571d667eaf4a2750e97691d55429d768ac9c # v0.1.0
         with: { packages: '${{ steps.target.outputs.packages }}' }
       - if: steps.changes.outputs.slow != 'false'
         run: rustup target add "$TARGET"

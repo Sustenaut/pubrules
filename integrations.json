@@ -56,7 +56,6 @@
         ".github/workflows/job-tested.yml",
         ".github/workflows/wheel.yml",
         "Makefile",
-        "actions/pr-label/",
         "src/pubrules/nightly.py",
         "src/pubrules/protect.py"
       ],

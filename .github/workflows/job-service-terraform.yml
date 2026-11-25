@@ -21,10 +21,16 @@ jobs:
         with: { terraform_wrapper: false }
       - run: terraform -chdir="$DIR" fmt -check -recursive
         env: { DIR: '${{ inputs.terraform-dir }}' }
+      # The provider mirror pubrules.json names (mirror.terraform), if any:
+      # none, or no pubrules.json, gives no mirror try.
+      - name: The provider mirror pubrules.json names
+        id: mirror
+        run: echo "terraform=$(jq -r '.mirror.terraform // empty' pubrules.json 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
       - name: terraform init, tried three times, then from the provider mirror
-        uses: Sustenaut/pubrules/actions/terraform-init@c847823ea0256b08a3811264e43571277c7aac7a # v0.46.0
+        uses: Sustenaut/pubactions/actions/terraform-init@b7e6571d667eaf4a2750e97691d55429d768ac9c # v0.1.0
         with:
           dir: ${{ inputs.terraform-dir }}
           args: -backend=false -input=false
+          mirror: ${{ steps.mirror.outputs.terraform }}
       - run: terraform -chdir="$DIR" validate
         env: { DIR: '${{ inputs.terraform-dir }}' }

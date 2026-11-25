@@ -119,6 +119,15 @@ Feature: The nightly keeps every pub* repository current, through a pull request
     And the file ".github/workflows/deploy.yml" includes "example-org/somehost/actions/docker-build@"
     And ".github/workflows/deploy.yml" pins "example-org/somehost" to the commit of "v0.2.0"
 
+  Scenario: pins moves a pubactions action to pubactions' latest release, as any other repository's
+    Given "Sustenaut/pubactions" releases "v0.2.0"
+    And a file ".github/workflows/ci.yml" holding "      - uses: Sustenaut/pubactions/actions/retry@1a49eb98c9647c1b60073d55b9ca0daf3eeee5c0 # v0.1.0"
+    When I run pubrules "pins" "--no-lock"
+    Then it succeeds
+    And it prints "ci.yml: Sustenaut/pubactions 0.1.0 -> 0.2.0"
+    And the file ".github/workflows/ci.yml" includes "Sustenaut/pubactions/actions/retry@"
+    And ".github/workflows/ci.yml" pins "Sustenaut/pubactions" to the commit of "v0.2.0"
+
   Scenario: actions moves a third-party action to its latest release, by its tag's commit
     Given "example-org/setup-thing" releases "v2.1.0"
     And the workflow "ci.yml" uses "example-org/setup-thing" and "example-org/setup-thing/restore" at "1a49eb98c9647c1b60073d55b9ca0daf3eeee5c0 # v1.4.0"

@@ -1,6 +1,7 @@
 Feature: pubrules names no repository that consumes it
   What identifies a consumer lives on the consumer's side, in its pubrules.json.
-  pubrules may name itself, the tools it depends on, and neutral examples, so
+  pubrules may name itself, the tools it depends on (pubrel, and pubactions,
+  whose actions its workflows use), and neutral examples, so
   src/, actions/, terraform/ and .github/ name no other owner/repo.
 
   Scenario: Nothing pubrules ships names a repository but its own and its tools'
@@ -28,7 +29,7 @@ Feature: pubrules names no repository that consumes it
       | such as schryer/some-repo                     | schryer/some-repo  |
       | such as Sustenaut/some-repo                   | Sustenaut/some-repo |
 
-  Scenario Outline: The guard lets pubrules, pubrel and neutral examples through
+  Scenario Outline: The guard lets pubrules, pubrel, pubactions and neutral examples through
     Given a shipped file reads "<text>"
     When I scan it for owner/repo names
     Then it finds nothing
@@ -37,6 +38,7 @@ Feature: pubrules names no repository that consumes it
       | text                                                |
       | uses: Sustenaut/pubrules/actions/cache@v1             |
       | uses: anyone/pubrel/.github/workflows/release.yml@v1 |
+      | uses: Sustenaut/pubactions/actions/retry@v1         |
       | https://github.com/example-org/some-cli             |
       | uses: actions/checkout@v5                           |
       | src/pubrules/refs.py and .github/workflows/ci.yml     |

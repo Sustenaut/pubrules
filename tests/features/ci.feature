@@ -379,9 +379,9 @@ Feature: pubrules sync writes a repository's CI from pubrules.json, with no skip
       | rust-ci.yml             |
 
 
-  Scenario Outline: A job's apt packages come from the Actions cache, by pubrules' apt-install action
+  Scenario Outline: A job's apt packages come from the Actions cache, by pubactions' apt-install action
     When I read the workflows and actions pubrules ships
-    Then every apt step of "<workflow>" installs its apt-packages input through actions/apt-install at pubrules' own pin, without recommended packages
+    Then every apt step of "<workflow>" installs its apt-packages input through pubactions' apt-install at one released commit, with the action's default of no recommended packages
 
     Examples:
       | workflow                  |
@@ -398,7 +398,7 @@ Feature: pubrules sync writes a repository's CI from pubrules.json, with no skip
 
   Scenario Outline: The cross job's linker and emulator come from the Actions cache, and the target's linker and runner stay set
     When I read the workflows and actions pubrules ships
-    Then the cross job of "<workflow>" installs the packages its target step names through actions/apt-install at pubrules' own pin
+    Then the cross job of "<workflow>" installs the packages its target step names through pubactions' apt-install at one released commit
     And for "s390x-unknown-linux-gnu" the target step of "<workflow>" names "gcc-s390x-linux-gnu libc6-dev-s390x-cross qemu-user" and sets CARGO_TARGET_S390X_UNKNOWN_LINUX_GNU_LINKER and CARGO_TARGET_S390X_UNKNOWN_LINUX_GNU_RUNNER
 
     Examples:
@@ -410,9 +410,9 @@ Feature: pubrules sync writes a repository's CI from pubrules.json, with no skip
     When I read the workflows and actions pubrules ships
     Then no step of pubrules' workflows runs apt-get
 
-  Scenario Outline: A setup that fails is tried again, three times at most, by pubrules' retry action
+  Scenario Outline: A setup that fails is tried again by pubactions' retry action
     When I read the workflows and actions pubrules ships
-    Then every setup step of "<workflow>" runs its setup input through actions/retry at pubrules' own pin, three times with 15 seconds between
+    Then every setup step of "<workflow>" runs its setup input through pubactions' retry at one released commit, with the action's tries and pause
 
     Examples:
       | workflow                  |
@@ -482,22 +482,29 @@ Feature: pubrules sync writes a repository's CI from pubrules.json, with no skip
     When the launcher fetches pubrules with GitHub failing and the mirror giving "another file"
     Then the launcher stops with "is not the wheel tests/requirements.lock pins"
 
-  Scenario Outline: A Terraform init that fails is tried three times, then once from pubrules.json's provider mirror, by pubrules' terraform-init action
+  Scenario Outline: A Terraform init that fails is tried again, then once from pubrules.json's provider mirror, by pubactions' terraform-init action
+    pubactions' terraform-init reads no pubrules.json: the step before it reads
+    mirror.terraform from the caller's, and gives it as the action's mirror input.
     When I read the workflows and actions pubrules ships
-    Then the "<workflow>" init step runs actions/terraform-init at pubrules' own pin in the terraform-dir input, with "-backend=false -input=false" and the action's default pause
+    Then the "<workflow>" init step runs pubactions' terraform-init at one released commit in the terraform-dir input, with "-backend=false -input=false", the action's tries and pause, and the mirror the step before it read
+    And the "<workflow>" mirror step gives "https://storage.example/terraform" for '{"kind": "service", "mirror": {"terraform": "https://storage.example/terraform"}}'
+    And the "<workflow>" mirror step gives "" for '{"kind": "service"}'
+    And the "<workflow>" mirror step gives "" for no pubrules.json
 
     Examples:
       | workflow                  |
       | job-service-terraform.yml |
       | service-ci.yml            |
 
-  Scenario: pubrules' workflows use pubrules' actions at one released commit, never by a local path
+  Scenario: pubrules' workflows use pubactions' actions at one released commit, and pubrules' own actions nowhere
     A reusable workflow runs in the caller's repository, where ./actions/ is
-    the caller's own, so pubrules' workflows name pubrules' actions as any
-    other repository does: by a release's commit, no later than this pubrules.
+    the caller's own, so pubrules' workflows name the actions they use by
+    pubactions' release commit, which the nightly moves. None uses an action of
+    pubrules' own: a workflow pinned to pubrules at one release, using pubrules'
+    actions at another, would tie the two releases together.
     When I read the workflows and actions pubrules ships
-    Then every use of pubrules' actions in pubrules' workflows pins one commit, at a release no later than this pubrules
-    And no reusable workflow of pubrules' uses an action by a local path
+    Then every use of pubactions' actions in pubrules' workflows pins one commit, with its version
+    And no workflow of pubrules' uses an action of pubrules' own, by its repository or by a local path
 
   Scenario: Without a list, the review leaves pubrules' and pubrel's workflows and actions out of the license check alone
     When I read the workflows and actions pubrules ships
