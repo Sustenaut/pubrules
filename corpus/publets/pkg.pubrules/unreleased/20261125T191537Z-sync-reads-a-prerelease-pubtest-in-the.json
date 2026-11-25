@@ -1,0 +1,4 @@
+{
+  "category": "fixed",
+  "change": "sync reads a prerelease pubtest in the lock (pubtestrules==0.5.0rc1) as no release, pinning the release state's or latest instead of 0.5.0, and a requirements-pubrules.txt template without exactly one '# pubtest floor: X.Y.Z' line stops pubrules with a message naming that line instead of a TypeError"
+}
