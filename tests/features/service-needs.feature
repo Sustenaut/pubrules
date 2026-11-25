@@ -73,7 +73,7 @@ Feature: A service's needs from GitHub Actions
     When the fulfil of "example" runs for 300 minutes
     Then it exits <code>
     And it printed each state once: <printed>
-    And the job summary links the approval page
+    And the job summary links the run's page, where a person approves it
     And the job summary says "<summary>"
     And nothing it printed or summarised holds an email or the token
 
@@ -84,6 +84,27 @@ Feature: A service's needs from GitHub Actions
       | "expired"                                       | 1    | planning, awaiting, expired                           | Expired: nobody decided in time             |
       | "failed" saying "plan changed since approval"   | 1    | planning, awaiting, failed                            | Failed: plan changed since approval         |
       | "failed" saying "approved by someone@example.org" | 1  | planning, awaiting, failed                            | Failed: approved by [someone]               |
+      | "stopped"                                       | 1    | planning, awaiting, stopped                           | Stopped: a person pressed Stop on the run's page |
+
+  Scenario: A fulfil is a live run, and the log names its page once: Watch this run
+    Given the engine answers the request with "planning", then "awaiting", then "done" with "k8s.secret:s" ready
+    When the fulfil of "example" runs for 300 minutes
+    Then it exits 0
+    And the engine was asked for a live "fulfil" of "example"
+    And it printed "Watch this run: https://convergence.example/runs/20261117T100000Z-ab12" once
+    And the log has the annotation "::notice title=Watch this run::https://convergence.example/runs/20261117T100000Z-ab12"
+    And the job summary says "Watch this run: [https://convergence.example/runs/20261117T100000Z-ab12]"
+
+  Scenario: A check is a live run too
+    Given the engine answers the request with "planning", then "done" with "k8s.secret:s" ready
+    When the check of "example" runs for 300 minutes
+    Then the engine was asked for a live "check" of "example"
+    And it printed "Watch this run: https://convergence.example/runs/20261117T100000Z-ab12" once
+
+  Scenario: A run page that is not the engine's own is not printed
+    Given the engine answers the request with "planning", then "done" with "k8s.secret:s" ready, naming the run page "javascript:alert(1)"
+    When the fulfil of "example" runs for 300 minutes
+    Then it printed nothing with "Watch this run"
 
   Scenario: A request still awaiting when the time is up ends well, saying the engine runs it when approved
     Given the engine answers the request with "awaiting" every time
@@ -227,7 +248,7 @@ Feature: A service's needs from GitHub Actions
     Given the engine answers the request with "planning", then "awaiting"
     When the ask step for "example" runs
     Then the job summary has the approval box, linking the request and naming "k8s.secret:s"
-    And the log has the annotation "::notice title=Approval needed::https://convergence.example/approvals/20261117T100000Z-ab12"
+    And the log has the annotation "::notice title=Approval needed::https://convergence.example/runs/20261117T100000Z-ab12"
     And the step output "request" is "20261117T100000Z-ab12"
     And the step output "minutes" is "299.8"
     And the ask step ends without waiting for the decision

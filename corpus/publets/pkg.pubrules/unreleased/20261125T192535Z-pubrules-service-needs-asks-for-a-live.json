@@ -1,0 +1,4 @@
+{
+  "category": "changed",
+  "change": "pubrules service-needs asks for a live run (mode live) for a check or fulfil, prints 'Watch this run: PAGE' with the run's page, links the approval box there, and ends a run a person stopped with exit 1"
+}

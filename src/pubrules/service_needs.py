@@ -10,19 +10,21 @@ as audience: the job needs `id-token: write`, and nothing else, no secret. The
 token is asked for afresh for every call, since a wait outlives one; it is masked
 in the log and never printed. The engine takes
 
-    POST ENGINE/requests        {"kind": "fulfil", "unit": UNIT}
+    POST ENGINE/requests        {"kind": "fulfil", "unit": UNIT, "mode": "live"}
     GET  ENGINE/requests/ID     the request's state, for the run that asked
 
 and the run polls every 15 seconds, waiting longer after an answer of 5xx or no
 answer at all, until the request ends or the time is up:
 
 - done (or a gate approved): success, each need's end state in the job summary;
-- declined, expired or failed (a plan that changed since its approval among them):
-  failure, with the engine's reason;
+- declined, expired, failed (a plan that changed since its approval among them) or
+  stopped (a person pressed Stop on the run's page): failure, with the engine's reason;
 - still awaiting, or still running, when the time is up: success, saying so: the
   engine runs it when a person approves it, whether or not the run still waits.
 
-Each state is printed once. The workflow runs it as two steps: `--stage ask` asks and
+A check or a fulfil is a live run: the engine walks it need by need on a page of its own,
+where a person sets each need's mode, approves and stops it, and the log prints
+"Watch this run: PAGE" once, as soon as the engine names it. Each state is printed once. The workflow runs it as two steps: `--stage ask` asks and
 follows the request until its plan is walked, and when it awaits a person writes a box
 to the job summary (and a notice) saying where to approve it, then ends, so the box
 shows on the run's page while `--stage wait` follows the request to its end, and no email (the engine names none to a caller) or
@@ -49,7 +51,7 @@ ENGINE = "https://convergence.sustenaut.eu"
 EVERY = 15.0  # seconds between polls
 LONGEST_WAIT = 120.0  # the most a poll waits after a failed call
 KINDS = ("check", "fulfil", "gate")
-ENDED = {"done": 0, "declined": 1, "expired": 1, "failed": 1}
+ENDED = {"done": 0, "declined": 1, "expired": 1, "failed": 1, "stopped": 1}
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 LINK = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.I)
 SAID = {"planning": "the engine is walking the unit read-only for its plan",
@@ -59,7 +61,8 @@ SAID = {"planning": "the engine is walking the unit read-only for its plan",
         "done": "done",
         "declined": "declined",
         "expired": "expired: nobody decided in time",
-        "failed": "failed"}
+        "failed": "failed",
+        "stopped": "stopped: a person pressed Stop on the run's page"}
 
 
 CALLER = ".github/workflows/service-needs.yml"
@@ -284,7 +287,8 @@ def ask(http: Http, engine: str, unit: str, kind: str, deadline: float,
     gets the box that says where to approve it, and the log a notice."""
     engine = engine.rstrip("/")
     try:
-        body = {"kind": kind, "unit": unit, **({"plan": plan or f"the needs of {unit}"} if kind == "gate" else {})}
+        body = {"kind": kind, "unit": unit,
+                **({"plan": plan or f"the needs of {unit}"} if kind == "gate" else {"mode": "live"})}
         first = retried(http, deadline, lambda: call(http, engine, "POST", "/requests", body))
     except Refused as e:
         http.out(f"service-needs: {e}")
@@ -295,6 +299,7 @@ def ask(http: Http, engine: str, unit: str, kind: str, deadline: float,
         return 1
     http.out(f"service-needs: asked the engine to {kind} {unit}: request {clean(first.get('id', ''))}")
     http.output("request", clean(first.get("id", "")))
+    watching(http, first)
     answer = watch(http, engine, unit, kind, deadline, first, poll or Poll(), lambda state: state != "planning")
     if isinstance(answer, int):  # the engine refused the run while it planned: said by watch
         return answer
@@ -305,9 +310,25 @@ def ask(http: Http, engine: str, unit: str, kind: str, deadline: float,
     return answer
 
 
+def run_page(answer: dict[str, Any]) -> str:
+    """The live run's page the engine names, or "": the run's own link, never another site's."""
+    page = clean(answer.get("run", ""))
+    return page if re.fullmatch(r"https://[A-Za-z0-9.-]+(:\d+)?/runs/[A-Za-z0-9-]+", page) else ""
+
+
+def watching(http: Http, answer: dict[str, Any]) -> None:
+    """"Watch this run: PAGE" in the log, a notice and the job summary, once the engine names it."""
+    page = run_page(answer)
+    if page:
+        http.out(f"service-needs: Watch this run: {page}")
+        http.out(f"::notice title=Watch this run::{page}")
+        http.summary(f"Watch this run: [{page}]({page})\n")
+
+
 def approval_box(http: Http, unit: str, answer: dict[str, Any]) -> None:
-    """The box on the run's page: a person must approve, where, and what the plan holds."""
-    page = clean(answer.get("url", ""))
+    """The box on the run's page: a person must approve, where, and what the plan holds. A live
+    run is approved on its own page; any other request on the engine's approvals page."""
+    page = run_page(answer) or clean(answer.get("url", ""))
     http.out(f"::notice title=Approval needed::{page}")
     lines = [f"> `{clean(n.get('need', ''))}` ({clean(n.get('state', ''))}): {said(n.get('change', ''))}"
              for n in answer.get("plan") or [] if isinstance(n, dict)]
@@ -331,6 +352,8 @@ def wait(http: Http, engine: str, unit: str, kind: str, minutes: float, request:
         return 1
     if first is None:
         return out_of_time(http, unit, "awaiting", f"{engine}/approvals/{clean(request)}")
+    if run_page(first):
+        http.out(f"service-needs: Watch this run: {run_page(first)}")
     return follow(http, engine, unit, kind, deadline, first)
 
 
@@ -340,7 +363,7 @@ def follow(http: Http, engine: str, unit: str, kind: str, deadline: float, answe
     found = watch(http, engine.rstrip("/"), unit, kind, deadline, answer, poll or Poll(), lambda _state: False)
     if isinstance(found, int):
         return found
-    state, page = found["state"], clean(found.get("url", ""))
+    state, page = found["state"], run_page(found) or clean(found.get("url", ""))
     if state in ENDED or (kind == "gate" and state == "approved"):
         return ended(http, unit, found, kind)
     return out_of_time(http, unit, state, page)
