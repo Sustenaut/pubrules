@@ -118,6 +118,52 @@ Feature: Other packages' releases are each repository's own pins
       -r requirements-pubrules.txt
       """
 
+  Scenario Outline: With no pin and no lock, the release state's pubtest is pinned, raised to the floor where it is below
+    Given a repository initialised as "utility"
+    And a file "tests/requirements.txt" holding "-r requirements-pubrules.txt"
+    And there is no "tests/requirements.lock"
+    And the release state lists "pubtest" at "<stated>"
+    When I run pubrules "sync"
+    Then it succeeds
+    And it prints "updated  tests/requirements.txt (pubtest: <pinned>)"
+    And the file "tests/requirements.txt" includes "pubtestrules==<pinned>"
+    And the pubtest tests/requirements.txt pins is one tests/requirements-pubrules.txt takes
+
+    Examples:
+      | stated | pinned |
+      | 0.2.2  | 0.4.0  |
+      | 0.4.3  | 0.4.3  |
+
+  Scenario: A prerelease in the lock is passed over for the release state's, never read as the release it precedes
+    Given a repository initialised as "utility"
+    And a file "tests/requirements.txt" holding "-r requirements-pubrules.txt"
+    And the release state lists "pubtest" at "0.4.3"
+    And a file "tests/requirements.lock" holding:
+      """
+      pubtestrules==0.5.0rc1 \
+          --hash=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      """
+    When I run pubrules "sync"
+    Then it succeeds
+    And it prints "updated  tests/requirements.txt (pubtest: 0.4.3)"
+    And the file "tests/requirements.txt" does not include "0.5.0"
+
+  Scenario Outline: The pubtest floor is read from its one line in the template, and a template without it stops pubrules
+    When pubrules reads the pubtest floor from a template holding <lines>
+    Then <outcome>
+
+    Examples:
+      | lines                                                         | outcome                                                                      |
+      | "pubtestrules>=0.2.2,<0.3" and "# pubtest floor: 0.4.0"       | the floor is "0.4.0"                                                         |
+      | "#  pubtest floor:  0.4.1  "                                  | the floor is "0.4.1"                                                         |
+      | "pubtestrules>=0.2.2,<0.3"                                    | it stops, saying "must name the pubtest floor on one line `# pubtest floor: X.Y.Z`, and names no such line" |
+      | "# pubtest floor: 0.4.0" and "# pubtest floor: 0.4.1"         | it stops, saying "and names 2 such lines"                                    |
+      | "# pubtest floor: 0.4"                                        | it stops, saying "and names no such line"                                    |
+
+  Scenario: The pubtest floor of the template this pubrules ships is read
+    When pubrules reads the pubtest floor of the template it ships
+    Then the floor is the version on its "# pubtest floor:" line
+
   Scenario: The nightly moves the pubtest tests/requirements.txt pins to its newest release on PyPI
     Given a repository initialised as "utility"
     And PyPI's newest release of "pubtestrules" is "0.4.5"

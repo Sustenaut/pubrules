@@ -766,12 +766,28 @@ def _release(text: str) -> tuple[int, ...]:
     return tuple(int(part) for part in text.split("."))
 
 
+FLOOR_LINE = re.compile(r"^#[ \t]*pubtest floor:[ \t]*(?P<version>[0-9]+\.[0-9]+\.[0-9]+)[ \t]*$", re.M)
+
+
+def floor_in(text: str) -> str:
+    """The pubtest floor a requirements-pubrules.txt template names on its
+    `# pubtest floor: X.Y.Z` line. Exits, naming the line it wants, when the
+    template has none, or more than one: a pubrules built so is broken, and
+    sync must not guess which pubtest its steps need."""
+    found = FLOOR_LINE.findall(text)
+    if len(found) != 1:
+        sys.exit("pubrules: this pubrules' requirements-pubrules.txt template must name the pubtest floor on "
+                 f"one line `# pubtest floor: X.Y.Z`, and names {len(found) or 'no'} such line"
+                 f"{'s' if len(found) > 1 else ''}; this pubrules is broken, so sync does not guess")
+    return found[0]
+
+
 def pubtest_floor() -> str:
     """The least pubtest this pubrules' steps need, as its
-    requirements-pubrules.txt says (`pubtestrules>=X`)."""
-    text = (resources.files("pubrules") / "templates" / "common" / "tests" / "requirements-pubrules.txt"
-            ).read_text(encoding="utf-8")
-    return re.search(r"^# pubtest floor: ([0-9]+\.[0-9]+\.[0-9]+)$", text, re.M)[1]
+    requirements-pubrules.txt says (`# pubtest floor: X.Y.Z`, written out as
+    `pubtestrules>=X.Y.Z`)."""
+    return floor_in((resources.files("pubrules") / "templates" / "common" / "tests" / "requirements-pubrules.txt"
+                     ).read_text(encoding="utf-8"))
 
 
 def pubtest_requirement(root: Path | None) -> str:
@@ -795,9 +811,12 @@ def is_pubtest(root: Path) -> bool:
 def pubtest_pin(root: Path, check: bool) -> tuple[list[str], bool]:
     """tests/requirements.txt pins pubtest by name, `pubtestrules==X`: `sync`
     writes the release a wheel pin of an older pubrules names, else the one
-    tests/requirements.lock has, else the latest release, each at least the
-    floor requirements-pubrules.txt takes; `--check` fails instead. Lines to
-    print, and whether that fails."""
+    tests/requirements.lock has, else the release state's or latest release;
+    whichever it takes, one below the floor requirements-pubrules.txt takes
+    is raised to the floor. A prerelease (`0.5.0rc1`) in the lock or a wheel
+    pin is not a release sync pins: it is passed over for the release
+    state's or latest release, never read as the release it precedes.
+    `--check` fails instead. Lines to print, and whether that fails."""
     path = root / REQUIREMENTS
     if not path.is_file() or is_pubtest(root):
         return [], False
@@ -823,7 +842,10 @@ def pubtest_pin(root: Path, check: bool) -> tuple[list[str], bool]:
     if held is None:
         lock = root / LOCK
         locked = lock.read_text(encoding="utf-8") if lock.is_file() else ""
-        found = re.search(r"^pubtestrules==([0-9]+\.[0-9]+\.[0-9]+)", locked, re.M) or PUBTEST_WHEEL.search(locked)
+        # The whole version, up to the lock's ` \` or the line's end: a
+        # prerelease (0.5.0rc1) is no X.Y.Z, so the release state's or latest is pinned.
+        found = (re.search(r"^pubtestrules==([0-9][^\s;\\]*)", locked, re.M)
+                 or PUBTEST_WHEEL.search(locked))
         held = found[1] if found else None
     if held is None or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", held):
         from .releases import version  # noqa: PLC0415

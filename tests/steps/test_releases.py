@@ -113,3 +113,40 @@ def pin_meets_floor(repo):
     pinned = re.search(r"^pubtestrules==([0-9.]+)$", (repo / "tests/requirements.txt").read_text(), re.M)[1]
     floor = re.search(r"^pubtestrules>=([0-9.]+)$", (repo / "tests/requirements-pubrules.txt").read_text(), re.M)[1]
     assert tuple(map(int, pinned.split("."))) >= tuple(map(int, floor.split("."))), (pinned, floor)
+
+
+@when(parsers.re(r"pubrules reads the pubtest floor from a template holding (?P<lines>(?:\"[^\"]*\"(?: and )?)+)$"),
+      target_fixture="floor")
+def floor_from(lines):
+    text = "".join(f"{line}\n" for line in lines.strip('"').split('" and "'))
+    try:
+        return {"floor": cli.floor_in(text)}
+    except SystemExit as stop:
+        return {"stopped": str(stop.code)}
+
+
+@when("pubrules reads the pubtest floor of the template it ships", target_fixture="floor")
+def floor_shipped():
+    return {"floor": cli.pubtest_floor()}
+
+
+@then(parsers.parse('the floor is "{version}"'))
+def floor_is(floor, version):
+    assert floor == {"floor": version}, floor
+
+
+@then(parsers.parse('it stops, saying "{text}"'))
+def floor_stops(floor, text):
+    assert text in floor.get("stopped", ""), floor
+
+
+@then('the floor is the version on its "# pubtest floor:" line')
+def floor_shipped_is(floor):
+    from importlib import resources  # noqa: PLC0415
+    text = (resources.files("pubrules") / "templates" / "common" / "tests" / "requirements-pubrules.txt").read_text()
+    assert f"# pubtest floor: {floor['floor']}\n" in text, floor
+
+
+@given(parsers.parse('there is no "{path}"'))
+def no_file(repo, path):
+    (repo / path).unlink(missing_ok=True)
