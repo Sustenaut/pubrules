@@ -1,4 +1,0 @@
-{
-  "category": "added",
-  "change": "The variables block's version 2: \"version\": 2, \"names\", \"defaults\" (each name's default, any JSON value: the code's own constant, never an org's value) and \"deploy\"; pubrules.variables.upgrade reads version 1 as 2 through its transformer (version: 2, defaults: {}), defaults() reads a block's defaults and canonical() compares them; sync --check takes either version"
-}
