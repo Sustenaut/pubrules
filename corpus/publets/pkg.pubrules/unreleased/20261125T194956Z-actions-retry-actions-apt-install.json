@@ -1,0 +1,4 @@
+{
+  "category": "removed",
+  "change": "actions/retry, actions/apt-install, actions/terraform-init and actions/pr-label are now pubactions' (Sustenaut/pubactions v0.1.0): pubrules' workflows use them at pubactions' release commit, and a caller pins Sustenaut/pubactions/actions/<name>@<commit> in place of Sustenaut/pubrules/actions/<name>; pubrules keeps actions/cache. job-service-terraform.yml and service-ci.yml read pubrules.json's mirror.terraform and give it to terraform-init as its mirror input, as before"
+}

@@ -18,7 +18,7 @@ on:
     inputs:
       runs-on: { type: string, default: ubuntu-latest, description: "The runner label the job runs on, from pubrules.json's ci.runs-on: a self-hosted runner scale set, or GitHub's ubuntu-latest." }
       python-version: { type: string, default: '3.14' }
-      apt-packages: { type: string, default: '', description: "Extra Ubuntu packages to install first, from the Actions cache when an earlier run installed them (actions/apt-install)." }
+      apt-packages: { type: string, default: '', description: "Extra Ubuntu packages to install first, from the Actions cache when an earlier run installed them (Sustenaut/pubactions/actions/apt-install)." }
       setup: { type: string, default: '', description: 'Prepares the tests, for example make venv. Empty skips it.' }
       test: { type: string, default: '', description: 'Runs the tests. Empty skips it.' }
       terraform-dir: { type: string, default: '', description: 'Where the Terraform files are. Empty skips the Terraform checks.' }
@@ -59,11 +59,17 @@ jobs:
         with: { terraform_wrapper: false }
       - run: terraform -chdir="$DIR" fmt -check -recursive
         env: { DIR: '${{ inputs.terraform-dir }}' }
+      # The provider mirror pubrules.json names (mirror.terraform), if any:
+      # none, or no pubrules.json, gives no mirror try.
+      - name: The provider mirror pubrules.json names
+        id: mirror
+        run: echo "terraform=$(jq -r '.mirror.terraform // empty' pubrules.json 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
       - name: terraform init, tried three times, then from the provider mirror
-        uses: Sustenaut/pubrules/actions/terraform-init@c847823ea0256b08a3811264e43571277c7aac7a # v0.46.0
+        uses: Sustenaut/pubactions/actions/terraform-init@b7e6571d667eaf4a2750e97691d55429d768ac9c # v0.1.0
         with:
           dir: ${{ inputs.terraform-dir }}
           args: -backend=false -input=false
+          mirror: ${{ steps.mirror.outputs.terraform }}
       - run: terraform -chdir="$DIR" validate
         env: { DIR: '${{ inputs.terraform-dir }}' }
 
@@ -89,11 +95,11 @@ jobs:
           restore-keys: service-tests-${{ runner.os }}-py${{ inputs.python-version }}-
       - if: inputs.apt-packages != ''
         name: Install the apt packages, kept in the Actions cache
-        uses: Sustenaut/pubrules/actions/apt-install@c847823ea0256b08a3811264e43571277c7aac7a # v0.46.0
+        uses: Sustenaut/pubactions/actions/apt-install@b7e6571d667eaf4a2750e97691d55429d768ac9c # v0.1.0
         with: { packages: '${{ inputs.apt-packages }}' }
       - if: inputs.setup != ''
         name: Set up, tried three times (a release download can time out)
-        uses: Sustenaut/pubrules/actions/retry@c847823ea0256b08a3811264e43571277c7aac7a # v0.46.0
+        uses: Sustenaut/pubactions/actions/retry@b7e6571d667eaf4a2750e97691d55429d768ac9c # v0.1.0
         with: { run: '${{ inputs.setup }}' }
       - run: ${{ inputs.test }}
       # The sonar job runs elsewhere, so the report goes to it as an artifact.

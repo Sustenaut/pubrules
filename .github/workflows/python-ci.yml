@@ -46,10 +46,10 @@ jobs:
         with: { python-version: '${{ inputs.python-version }}' }
       - if: inputs.apt-packages != ''
         name: Install the apt packages, kept in the Actions cache
-        uses: Sustenaut/pubrules/actions/apt-install@c847823ea0256b08a3811264e43571277c7aac7a # v0.46.0
+        uses: Sustenaut/pubactions/actions/apt-install@b7e6571d667eaf4a2750e97691d55429d768ac9c # v0.1.0
         with: { packages: '${{ inputs.apt-packages }}' }
       - name: Set up, tried three times (a release download can time out)
-        uses: Sustenaut/pubrules/actions/retry@c847823ea0256b08a3811264e43571277c7aac7a # v0.46.0
+        uses: Sustenaut/pubactions/actions/retry@b7e6571d667eaf4a2750e97691d55429d768ac9c # v0.1.0
         with: { run: '${{ inputs.setup }}' }
       - if: inputs.sync-check
         run: .venv/bin/pubrules sync --check
@@ -86,10 +86,10 @@ jobs:
         with: { python-version: '${{ inputs.python-version }}' }
       - if: inputs.apt-packages != ''
         name: Install the apt packages, kept in the Actions cache
-        uses: Sustenaut/pubrules/actions/apt-install@c847823ea0256b08a3811264e43571277c7aac7a # v0.46.0
+        uses: Sustenaut/pubactions/actions/apt-install@b7e6571d667eaf4a2750e97691d55429d768ac9c # v0.1.0
         with: { packages: '${{ inputs.apt-packages }}' }
       - name: Set up, tried three times (a release download can time out)
-        uses: Sustenaut/pubrules/actions/retry@c847823ea0256b08a3811264e43571277c7aac7a # v0.46.0
+        uses: Sustenaut/pubactions/actions/retry@b7e6571d667eaf4a2750e97691d55429d768ac9c # v0.1.0
         with: { run: '${{ inputs.setup }}' }
       - run: ${{ inputs.browser-setup }}
       - run: ${{ inputs.browser-test }}
@@ -228,11 +228,11 @@ jobs:
               pkg:githubactions/Sustenaut/pubrules/.github/workflows/python-ci.yml,
               pkg:githubactions/Sustenaut/pubrules/.github/workflows/rust-ci.yml,
               pkg:githubactions/Sustenaut/pubrules/.github/workflows/service-ci.yml,
-              pkg:githubactions/Sustenaut/pubrules/actions/apt-install,
               pkg:githubactions/Sustenaut/pubrules/actions/cache,
-              pkg:githubactions/Sustenaut/pubrules/actions/pr-label,
-              pkg:githubactions/Sustenaut/pubrules/actions/retry,
-              pkg:githubactions/Sustenaut/pubrules/actions/terraform-init,
+              pkg:githubactions/Sustenaut/pubactions/actions/apt-install,
+              pkg:githubactions/Sustenaut/pubactions/actions/pr-label,
+              pkg:githubactions/Sustenaut/pubactions/actions/retry,
+              pkg:githubactions/Sustenaut/pubactions/actions/terraform-init,
               pkg:githubactions/Sustenaut/pubrel/.github/workflows/release.yml
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:

@@ -24,8 +24,9 @@ NAMED = [re.compile(rf"github\.com[:/]({NAME}){END}"),
          re.compile(rf"\bREPOS?=({NAME}){END}"),
          re.compile(rf"(?i)\b((?:schryer|sustenaut)/[A-Za-z0-9][A-Za-z0-9_.-]*?){END}")]
 
-# pubrules itself, its release tool, and what the examples use.
-ALWAYS = {"pubrules", "pubrel"}
+# pubrules itself, its release tool, the actions its workflows use
+# (pubactions), and what the examples use.
+ALWAYS = {"pubrules", "pubrel", "pubactions"}
 NEUTRAL = "example-org"
 # The owners of the actions, the tools (actionlint) and the registry pubrules' own files depend on.
 DEPENDENCIES = {"actions", "astral-sh", "bitwarden", "docker", "google", "google-github-actions", "hashicorp", "pypa",

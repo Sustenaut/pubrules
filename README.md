@@ -243,72 +243,43 @@ here first, then by pubhost's modules. pubrules also keeps
 `job-service-terraform.yml`, which checks a stack without a backend, and the
 `ci / site` job ("Generated CI" below).
 
-## pubrules' actions
+## Actions
 
-- **`actions/apt-install`:** installs the apt packages `packages` names
-  (separated by any whitespace, so a YAML block of lines will do;
-  `no-install-recommends` is `true` by default), keeping the package lists
-  and the .deb files in the Actions cache under
-  `apt-<ImageOS>-<ImageVersion>-<arch>-<sha256 of the sorted packages and
-  the flag>-<run id>-<attempt>` (off a hosted runner, the release's
-  codename and `self-hosted`), restored by all but the run, so the newest
-  entry wins. On a hit the packages are installed with `--no-download` and
-  no `apt-get update`, so nothing is fetched; a hit that will not install,
-  or a miss, updates the lists and installs, tried as retry tries a script,
-  and saves this run's entry, so a stale cache mends itself even where
-  `ImageVersion` never changes. GitHub evicts the older entries once no
-  run has used them for 7 days. A cache service that refuses,
-  as for a self-hosted runner whose billing is blocked, only means the
-  packages come from the mirror.
+The composite actions pubrules' workflows run are
+[pubactions](https://github.com/Sustenaut/pubactions)': `actions/retry`
+(a bash script tried up to three times), `actions/apt-install` (apt
+packages from the Actions cache), `actions/terraform-init` (`terraform
+init`, tried again, then once from a provider mirror its `mirror` input
+names) and `actions/pr-label` (whether a run's pull request carries a
+label). Each is used from there by commit:
+`Sustenaut/pubactions/actions/retry@<commit> # vX.Y.Z`. pubactions' README
+describes their inputs.
 
-  ```yaml
-  - uses: Sustenaut/pubrules/actions/apt-install@<commit> # vX.Y.Z
-    with: { packages: gcc-s390x-linux-gnu libc6-dev-s390x-cross qemu-user }
-  ```
+pubrules' reusable workflows use them at one pubactions release, pinned by
+its commit as any caller pins them: a reusable workflow runs in the
+caller's checkout, where `./actions/` is the caller's. The nightly moves
+that pin, as any other repository's, to pubactions' latest release.
+`job-service-terraform.yml` and `service-ci.yml` read the caller's
+pubrules.json `mirror.terraform` (see "A wheel mirror") and give it to
+terraform-init as its `mirror`; none gives no mirror try.
+
+pubrules keeps one action of its own:
+
 - **`actions/cache`:** keeps what a build fetched or made between runs,
   by the entries of pubrules.json's `cache` block (see "Caching a build"
   below). Call it with `step: restore` before the build and `step: save`
   after it, which also drops what no run used; `fresh: true` restores no
-  fetched entry, and `refresh: true` restores no entry at all.
-- **`actions/pr-label`:** says whether the pull request a run is for
-  carries a label, `refresh cache` by default (`label` names another),
-  as its output `present`. The pull request is the event's own, the one a
-  merge queue group is for, or, on a push, the ones merged into the pushed
-  commit, which needs `pull-requests: read`. One label a person puts on a
-  pull request can so steer what its deploy does once it merges, such as
-  rebuilding everything:
+  fetched entry, and `refresh: true` restores no entry at all, which
+  pubactions' `actions/pr-label` can set from a label on the pull request:
 
   ```yaml
   permissions: { contents: read, pull-requests: read }
   steps:
     - id: refresh
-      uses: Sustenaut/pubrules/actions/pr-label@<commit> # vX.Y.Z
+      uses: Sustenaut/pubactions/actions/pr-label@<commit> # vX.Y.Z
     - uses: Sustenaut/pubrules/actions/cache@<commit> # vX.Y.Z
       with: { step: restore, refresh: "${{ steps.refresh.outputs.present }}" }
   ```
-- **`actions/retry`:** runs a bash script (`run`) with `bash -ec` up to
-  `tries` times (3), for a step a flaky download can fail. After each
-  failed try but the last it warns "`<what>` failed (attempt N of T)"
-  (`what` is `setup` by default) and waits `pause` seconds (15); it fails
-  when every try did. The inputs reach the script through its
-  environment, so the script runs exactly as given.
-- **`actions/terraform-init`:** `terraform -chdir=<dir> init <args>`
-  (`dir` `.`, `args` `-input=false`, `terraform` the binary), tried as
-  retry tries a script, then once more with every provider from
-  pubrules.json's `mirror.terraform`, when it names one (see "A wheel
-  mirror"); the lock's hashes still check what the mirror gives.
-
-  ```yaml
-  - uses: hashicorp/setup-terraform@<commit> # vX.Y.Z
-  - uses: Sustenaut/pubrules/actions/terraform-init@<commit> # vX.Y.Z
-    with: { dir: infra, args: -backend=false -input=false }
-  ```
-
-pubrules' own reusable workflows run their setup and terraform init through
-these two, pinned by a release's commit as any caller pins them: a reusable
-workflow runs in the caller's checkout, where `./actions/` is the caller's.
-So a change to either action reaches the workflows one release later, when
-their pins move to the release that has it.
 
 ## Deploying a service to k3s
 
@@ -463,8 +434,8 @@ In a workflow, `actions/cache` restores before the build and saves after
 it. Saving first drops what no run used, so a made entry keeps one
 build's worth (`pubrules cache prune` does the same by hand). With
 `refresh: true` (`pubrules cache plan --refresh`) the restore step restores
-nothing, so the build fetches and makes everything anew; `actions/pr-label`
-sets it from a `refresh cache` label on the pull request.
+nothing, so the build fetches and makes everything anew; pubactions'
+`actions/pr-label` sets it from a `refresh cache` label on the pull request.
 
 ```yaml
 - uses: Sustenaut/pubrules/actions/cache@vX.Y.Z
@@ -1226,7 +1197,7 @@ A Rust repository runs the jobs the Rust crate standard asks for here, worked ou
 
 Uploading a coverage report and restoring or saving a cache only help a run: none of them fails a job. GitHub's artifact and cache services can refuse a run (when the account's Actions billing is blocked they answer with an HTML page, on self-hosted runners too), so every `upload-artifact` of a report and every `actions/cache` step in pubrules' workflows, and every restore and save in `actions/cache`, runs with `continue-on-error`, and the workflow steps stop trying after five minutes. A test that fails still fails its job; a refused upload only leaves the scan without that coverage.
 
-A service runs `checks` (the sync check and shellcheck) and `sonar`, and `terraform` and `tests` when `with` gives a `terraform-dir` and a `test`. Its tests hand `sonar` the coverage they write to `coverage-report` (by default `coverage/`, Cobertura XML or LCOV `lcov.info`). `with`'s `apt-packages` names Ubuntu packages its tests job installs first, through `actions/apt-install`, from the Actions cache when an earlier run installed them (`"apt-packages": "tippecanoe"`); a content repository's tests take it too. A Python package or a service also runs `lint` when `with` gives a `lint` command ("The Python standard" above). A private service drops the scan with `"jobs": {"sonar": false}`. A content repository runs `checks` (shellcheck on `**/*.sh` unless `with` gives `shellcheck`) and, when `with` gives a `test`, `tests`, and has no `sonar`.
+A service runs `checks` (the sync check and shellcheck) and `sonar`, and `terraform` and `tests` when `with` gives a `terraform-dir` and a `test`. Its tests hand `sonar` the coverage they write to `coverage-report` (by default `coverage/`, Cobertura XML or LCOV `lcov.info`). `with`'s `apt-packages` names Ubuntu packages its tests job installs first, through pubactions' `actions/apt-install`, from the Actions cache when an earlier run installed them (`"apt-packages": "tippecanoe"`); a content repository's tests take it too. A Python package or a service also runs `lint` when `with` gives a `lint` command ("The Python standard" above). A private service drops the scan with `"jobs": {"sonar": false}`. A content repository runs `checks` (shellcheck on `**/*.sh` unless `with` gives `shellcheck`) and, when `with` gives a `test`, `tests`, and has no `sonar`.
 
 A repository that deploys a static site with pubhost's `deploy-static` also gets a `site` job in `pr.yml` (`ci / site`, part of `ci / passed`), so a site that would fail to deploy fails the pull request instead of the deploy after merge. It checks the repository out, builds the site, and runs the `deploy-static` the repository's own deploy workflow pins, as it pins it, with `check-only: 'true'`, which runs its site check and deploys nothing, so it needs no secret. The job comes when any workflow of the repository's own uses `deploy-static`, or pubrules.json has a `site` block, which then needs such a workflow to take the pin from:
 

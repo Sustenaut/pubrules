@@ -36,7 +36,7 @@ jobs:
           restore-keys: python-lint-${{ runner.os }}-py${{ inputs.python-version }}-
       - if: inputs.setup != ''
         name: Set up, tried three times (a release download can time out)
-        uses: Sustenaut/pubrules/actions/retry@c847823ea0256b08a3811264e43571277c7aac7a # v0.46.0
+        uses: Sustenaut/pubactions/actions/retry@b7e6571d667eaf4a2750e97691d55429d768ac9c # v0.1.0
         with: { run: '${{ inputs.setup }}' }
       # GitHub's annotations show each finding on the pull request's lines.
       - run: ${{ inputs.lint }}

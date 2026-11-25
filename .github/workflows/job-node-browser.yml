@@ -28,10 +28,10 @@ jobs:
         with: { node-version: '${{ inputs.node-version }}' }
       - if: inputs.apt-packages != ''
         name: Install the apt packages, kept in the Actions cache
-        uses: Sustenaut/pubrules/actions/apt-install@c847823ea0256b08a3811264e43571277c7aac7a # v0.46.0
+        uses: Sustenaut/pubactions/actions/apt-install@b7e6571d667eaf4a2750e97691d55429d768ac9c # v0.1.0
         with: { packages: '${{ inputs.apt-packages }}' }
       - name: Set up, tried three times (a release download can time out)
-        uses: Sustenaut/pubrules/actions/retry@c847823ea0256b08a3811264e43571277c7aac7a # v0.46.0
+        uses: Sustenaut/pubactions/actions/retry@b7e6571d667eaf4a2750e97691d55429d768ac9c # v0.1.0
         with: { run: '${{ inputs.setup }}' }
       - run: ${{ inputs.browser-setup }}
       - run: ${{ inputs.browser-test }}

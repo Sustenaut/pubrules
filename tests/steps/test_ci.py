@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -159,6 +160,10 @@ def _default_purls(shipped=None):
     return step["env"]["DEFAULT"]
 
 
+# The actions pubactions ships, which pubrules' workflows and their callers use.
+PUBACTIONS = ("apt-install", "pr-label", "retry", "terraform-init")
+
+
 @then("job-review.yml's license exceptions name every reusable workflow and action pubrules has, "
       "and pubrel's release workflow")
 def review_exceptions(shipped):
@@ -166,6 +171,7 @@ def review_exceptions(shipped):
     wanted = {f"pkg:githubactions/Sustenaut/pubrules/.github/workflows/{name}"
               for name, data in _workflows(shipped) if "workflow_call" in (data.get(True) or {})}
     wanted |= {f"pkg:githubactions/Sustenaut/pubrules/actions/{name}" for name in shipped["actions"]}
+    wanted |= {f"pkg:githubactions/Sustenaut/pubactions/actions/{name}" for name in PUBACTIONS}
     wanted |= {"pkg:githubactions/Sustenaut/pubrel/.github/workflows/release.yml"}
     assert listed == wanted, (sorted(wanted - listed), sorted(listed - wanted))
 
@@ -901,41 +907,38 @@ def _steps(shipped, workflow):
     return [s for job in data["jobs"].values() for s in job.get("steps", [])]
 
 
-# pubrules' own actions, as its reusable workflows pin them: by a release's commit.
-SELF_PIN = re.compile(r"^Sustenaut/pubrules/actions/(?P<name>[\w-]+)@(?P<commit>[0-9a-f]{40})$")
+# pubactions' actions, as pubrules' reusable workflows pin them: by a release's
+# commit, with the version in a comment, which YAML reads as no part of `uses`.
+PUBACTIONS_PIN = re.compile(r"^Sustenaut/pubactions/actions/(?P<name>[\w-]+)@(?P<commit>[0-9a-f]{40})$")
+# The same pin in a workflow's text, its version comment included.
+PUBACTIONS_TEXT = re.compile(r"Sustenaut/pubactions/actions/(?P<name>[\w-]+)@(?P<ref>[^\s'\"]+)"
+                             r"(?:[ \t]+#[ \t]*v(?P<version>[0-9][^\s'\"]*))?")
 
 
-def _self_pinned(step, name):
-    m = SELF_PIN.match(step.get("uses", ""))
+def _pubactions_pinned(step, name):
+    m = PUBACTIONS_PIN.match(step.get("uses", ""))
     assert m and m["name"] == name, step
     return m["commit"]
 
 
-def _action_inputs(shipped, name):
-    return yaml.safe_load(shipped["actions"][name])["inputs"]
-
-
-@then(parsers.parse("every setup step of \"{workflow}\" runs its setup input through actions/retry at pubrules' "
-                    "own pin, three times with 15 seconds between"))
+@then(parsers.parse("every setup step of \"{workflow}\" runs its setup input through pubactions' retry "
+                    "at one released commit, with the action's tries and pause"))
 def setup_retried(shipped, workflow):
     steps = [s for s in _steps(shipped, workflow) if s.get("name", "").startswith("Set up, tried three times")]
     assert steps, workflow
-    retry = _action_inputs(shipped, "retry")
-    assert (retry["what"]["default"], retry["tries"]["default"], retry["pause"]["default"]) == ("setup", "3", "15")
     for step in steps:
-        _self_pinned(step, "retry")
+        _pubactions_pinned(step, "retry")
         assert step["with"] == {"run": "${{ inputs.setup }}"}, step
         assert "run" not in step and "env" not in step, step
 
 
-@then(parsers.parse("every apt step of \"{workflow}\" installs its apt-packages input through actions/apt-install "
-                    "at pubrules' own pin, without recommended packages"))
+@then(parsers.parse("every apt step of \"{workflow}\" installs its apt-packages input through pubactions' "
+                    "apt-install at one released commit, with the action's default of no recommended packages"))
 def apt_by_action(shipped, workflow):
     steps = [s for s in _steps(shipped, workflow) if s.get("if") == "inputs.apt-packages != ''"]
     assert steps, workflow
-    assert _action_inputs(shipped, "apt-install")["no-install-recommends"]["default"] == "true"
     for step in steps:
-        _self_pinned(step, "apt-install")
+        _pubactions_pinned(step, "apt-install")
         assert step["with"] == {"packages": "${{ inputs.apt-packages }}"}, step
         assert "run" not in step and "env" not in step, step
 
@@ -949,10 +952,10 @@ def _cross_steps(shipped, workflow):
 
 
 @then(parsers.parse("the cross job of \"{workflow}\" installs the packages its target step names through "
-                    "actions/apt-install at pubrules' own pin"))
+                    "pubactions' apt-install at one released commit"))
 def cross_by_action(shipped, workflow):
     target, install = _cross_steps(shipped, workflow)
-    _self_pinned(install, "apt-install")
+    _pubactions_pinned(install, "apt-install")
     assert install["with"] == {"packages": "${{ steps.target.outputs.packages }}"}, install
     assert install.get("if") == target.get("if"), (target, install)
 
@@ -977,37 +980,56 @@ def no_apt_get(shipped):
                 assert "apt-get" not in step.get("run", ""), f"{name}: {step}"
 
 
-@then(parsers.parse("the \"{workflow}\" init step runs actions/terraform-init at pubrules' own pin in the "
-                    "terraform-dir input, with \"{args}\" and the action's default pause"))
+def _init_steps(shipped, workflow):
+    """The step that reads the provider mirror, and the init step it feeds."""
+    steps = _steps(shipped, workflow)
+    (at,) = [n for n, s in enumerate(steps) if s.get("name", "").startswith("terraform init, tried three times")]
+    return steps[at - 1], steps[at]
+
+
+@then(parsers.parse("the \"{workflow}\" init step runs pubactions' terraform-init at one released commit in the "
+                    "terraform-dir input, with \"{args}\", the action's tries and pause, and the mirror the step "
+                    "before it read"))
 def init_by_action(shipped, workflow, args):
-    (step,) = [s for s in _steps(shipped, workflow) if s.get("name", "").startswith("terraform init, tried three times")]
-    _self_pinned(step, "terraform-init")
-    init = _action_inputs(shipped, "terraform-init")
-    assert (init["tries"]["default"], init["pause"]["default"]) == ("3", "15")
-    assert step["with"] == {"dir": "${{ inputs.terraform-dir }}", "args": args}, step
+    mirror, step = _init_steps(shipped, workflow)
+    _pubactions_pinned(step, "terraform-init")
+    assert step["with"] == {"dir": "${{ inputs.terraform-dir }}", "args": args,
+                            "mirror": f"${{{{ steps.{mirror['id']}.outputs.terraform }}}}"}, step
     assert "run" not in step and "env" not in step, step
 
 
-@then("every use of pubrules' actions in pubrules' workflows pins one commit, at a release no later than this pubrules")
-def self_pins_released(shipped):
-    """No self-pin at all passes too: the workflows may carry their own steps."""
+@then(parsers.re(r'the "(?P<workflow>[^"]+)" mirror step gives "(?P<want>[^"]*)" for (?P<given>.+)$'))
+def mirror_step(shipped, tmp_path, workflow, want, given):
+    mirror, _ = _init_steps(shipped, workflow)
+    # A checkout of its own each time: one scenario runs this step three times.
+    work = Path(tempfile.mkdtemp(dir=tmp_path))
+    if given != "no pubrules.json":
+        (work / "pubrules.json").write_text(given.strip("'"))
+    out = work / "output"
+    done = subprocess.run(["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", mirror["run"]],
+                          capture_output=True, text=True, check=False, cwd=work,
+                          env={**os.environ, "GITHUB_OUTPUT": str(out)})
+    assert done.returncode == 0, done
+    assert out.read_text() == f"terraform={want}\n", out.read_text()
+
+
+@then("every use of pubactions' actions in pubrules' workflows pins one commit, with its version")
+def pubactions_pins(shipped):
     pins = set()
     for name, text in sorted(shipped["workflows"].items()):
-        uses = [u for u in refs.PUBRULES_USE.findall(text) if "/pubrules/actions/" in u]
-        pinned = [m for m in refs.PUBRULES_PIN.finditer(text) if m["name"].startswith("actions/")]
-        assert len(pinned) == len(uses) and all(m["commit"] for m in pinned), \
-            f"{name}: pin pubrules' actions by a release's commit, with its version: {uses}"
-        pins |= {(m["commit"], m["version"]) for m in pinned}
-    assert len(pins) <= 1, f"pubrules' workflows pin its actions at more than one commit: {sorted(pins)}"
-    for _, version in pins:
-        assert tuple(map(int, version.split("."))) <= tuple(map(int, __version__.split("."))), \
-            f"pubrules' workflows pin its actions at v{version}, later than this pubrules ({__version__})"
+        for m in PUBACTIONS_TEXT.finditer(text):
+            assert refs.COMMIT.fullmatch(m["ref"]) and m["version"], \
+                f"{name}: pin pubactions' actions by a release's commit, with its version: {m.group(0)}"
+            pins.add((m["ref"], m["version"]))
+    assert len(pins) == 1, f"pubrules' workflows pin pubactions at {sorted(pins) or 'no commit'}, not one"
 
 
-@then("no reusable workflow of pubrules' uses an action by a local path")
-def no_local_actions(shipped):
+@then("no workflow of pubrules' uses an action of pubrules' own, by its repository or by a local path")
+def no_own_actions(shipped):
     reusable = 0
     for name, data in _workflows(shipped):
+        uses = [u for u in refs.PUBRULES_USE.findall(shipped["workflows"][name]) if "/pubrules/actions/" in u]
+        assert not uses, f"{name}: {uses}"
         on = data.get("on", data.get(True))  # YAML 1.1 reads a bare `on` as true
         if "workflow_call" in (on if isinstance(on, (dict, list)) else [on]):
             reusable += 1

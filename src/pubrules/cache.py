@@ -44,8 +44,8 @@ used since the last save, so `path` holds one build's worth.
 
 `pubrules cache plan` gives the key for each entry, and `actions/cache`
 restores and saves them. `plan --refresh` restores no entry at all, fetched
-or made, so the run fetches and makes everything anew (`actions/pr-label`
-tells a workflow when the pull request it runs for asks for that). Only Python's standard library is used, so the
+or made, so the run fetches and makes everything anew (pubactions'
+`actions/pr-label` tells a workflow when the pull request it runs for asks for that). Only Python's standard library is used, so the
 action runs this module from its own copy of pubrules without installing
 anything.
 """
