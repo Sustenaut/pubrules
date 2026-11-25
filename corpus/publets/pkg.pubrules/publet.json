@@ -2,7 +2,7 @@
   "claims": {
     "identity": {
       "class": "archival",
-      "content": "pubrules 0.49.0 is released as v0.49.0 from commit b555eec31a80744bed361c950cefe26c0bf4e624.",
+      "content": "pubrules 0.49.1 is released as v0.49.1 from commit cc7604e1fbc52cf3dcefd86b09c9d2b357b16fce.",
       "data": {
         "columns": [
           {
@@ -27,25 +27,25 @@
         "rows": [
           [
             "pubrules",
-            "0.49.0",
+            "0.49.1",
             "pubrules --version",
-            "pubrules 0.49.0",
-            "v0.49.0",
-            "b555eec31a80744bed361c950cefe26c0bf4e624"
+            "pubrules 0.49.1",
+            "v0.49.1",
+            "cc7604e1fbc52cf3dcefd86b09c9d2b357b16fce"
           ]
         ]
       },
-      "scope": "the published release v0.49.0 of pubrules",
+      "scope": "the published release v0.49.1 of pubrules",
       "sources": [
         {
           "ref": "pubrules",
-          "revision": "b555eec31a80744bed361c950cefe26c0bf4e624"
+          "revision": "cc7604e1fbc52cf3dcefd86b09c9d2b357b16fce"
         }
       ]
     },
     "release": {
       "class": "archival",
-      "content": "pubrules 0.49.0 was released on 2026-11-24 from commit b555eec31a80744bed361c950cefe26c0bf4e624 with these changes.",
+      "content": "pubrules 0.49.1 was released on 2026-11-25 from commit cc7604e1fbc52cf3dcefd86b09c9d2b357b16fce with these changes.",
       "data": {
         "columns": [
           {
@@ -57,44 +57,24 @@
         ],
         "rows": [
           [
-            "fixed",
-            "A Python package's sonar job now also gives SonarQube Cloud the JavaScript coverage in a lcov.info report, as a service's does, so a Python package with JavaScript code no longer needs a sonar-args path into the runner's temporary directory."
-          ],
-          [
-            "changed",
-            "pub* packages are pinned by their PyPI names: requirements-pubrules.txt requires `pubtestrules>=0.4.0` and `pubrules==X`, tests/requirements.txt pins `pubtestrules==X` (sync pins by name the release a wheel pin of pubrules 0.48.0 and before names, raised to the floor), the lock holds each with every published hash, and `pubrules lock` refuses any package named pubtest (PyPI's other project)"
-          ],
-          [
-            "changed",
-            "./pubrules runs `uvx --from pubrules==X` from PyPI; with a wheel mirror (mirror.wheels) it still fetches pubrules' release wheel, from GitHub or else the mirror, checked against the sha256 tests/requirements.lock pins for `pubrules==X`"
-          ],
-          [
             "added",
-            "the nightly moves each pub* package a requirements file pins by name (`pubtestrules==X` among them) to its newest release on PyPI with a file not yanked, or on the PyPI mirror where pubrules.json names one, and locks again"
-          ],
-          [
-            "added",
-            "The sonar job of a generated ci block (job-sonar.yml) no longer lets SonarQube Cloud being down block a pull request or a deploy: its scan only uploads, and a gate step then asks SonarQube Cloud for the result. A failed or refused quality gate still fails the job, but when SonarQube Cloud gives no answer after three tries, the job passes with a warning and a note in its summary if the pull request carries the label sonar-down (for a push to main, the pull request merged into it). The main run's sonar job gets pull-requests: read for that."
-          ],
-          [
-            "added",
-            "The Python standard: a Python package or a service whose ci block's with gives a lint command (\"lint\": \"make lint\") gets a lint job (job-python-lint.yml, ci / lint) that runs setup and then that command, with Ruff's findings shown on the pull request. sync then manages pubrules-ruff.toml, the shared Ruff rules (Ruff's defaults with bugbear, simplify, pyupgrade, isort and pylint's size limits, line length 120, Ruff's formatter), and pins ruff 0.17.6 beside it in tests/requirements-pubrules.txt; sync --check fails until pyproject.toml's [tool.ruff] extends pubrules-ruff.toml, while it sets line-length, select, ignore or extend-ignore over it, and until tests/requirements.lock pins that Ruff. pubrules-python.mk gains make lint (ruff check, then ruff format --check) and make fmt."
+            "The variables block's version 2: \"version\": 2, \"names\", \"defaults\" (each name's default, any JSON value: the code's own constant, never an org's value) and \"deploy\"; pubrules.variables.upgrade reads version 1 as 2 through its transformer (version: 2, defaults: {}), defaults() reads a block's defaults and canonical() compares them; sync --check takes either version"
           ]
         ]
       },
       "depends": [
         "#identity"
       ],
-      "scope": "the published release v0.49.0 of pubrules",
+      "scope": "the published release v0.49.1 of pubrules",
       "sources": [
         {
           "ref": "pubrules",
-          "revision": "b555eec31a80744bed361c950cefe26c0bf4e624"
+          "revision": "cc7604e1fbc52cf3dcefd86b09c9d2b357b16fce"
         }
       ]
     }
   },
-  "created": "2026-11-24T00:00:00Z",
+  "created": "2026-11-25T00:00:00Z",
   "sections": [
     {
       "heading": "Identity",
