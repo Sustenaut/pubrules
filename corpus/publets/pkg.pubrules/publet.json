@@ -2,7 +2,7 @@
   "claims": {
     "identity": {
       "class": "archival",
-      "content": "pubrules 0.49.1 is released as v0.49.1 from commit cc7604e1fbc52cf3dcefd86b09c9d2b357b16fce.",
+      "content": "pubrules 0.50.0 is released as v0.50.0 from commit d224b533542652caf6c44aa77c2fa2214713507a.",
       "data": {
         "columns": [
           {
@@ -27,25 +27,25 @@
         "rows": [
           [
             "pubrules",
-            "0.49.1",
+            "0.50.0",
             "pubrules --version",
-            "pubrules 0.49.1",
-            "v0.49.1",
-            "cc7604e1fbc52cf3dcefd86b09c9d2b357b16fce"
+            "pubrules 0.50.0",
+            "v0.50.0",
+            "d224b533542652caf6c44aa77c2fa2214713507a"
           ]
         ]
       },
-      "scope": "the published release v0.49.1 of pubrules",
+      "scope": "the published release v0.50.0 of pubrules",
       "sources": [
         {
           "ref": "pubrules",
-          "revision": "cc7604e1fbc52cf3dcefd86b09c9d2b357b16fce"
+          "revision": "d224b533542652caf6c44aa77c2fa2214713507a"
         }
       ]
     },
     "release": {
       "class": "archival",
-      "content": "pubrules 0.49.1 was released on 2026-11-25 from commit cc7604e1fbc52cf3dcefd86b09c9d2b357b16fce with these changes.",
+      "content": "pubrules 0.50.0 was released on 2026-11-25 from commit d224b533542652caf6c44aa77c2fa2214713507a with these changes.",
       "data": {
         "columns": [
           {
@@ -57,19 +57,27 @@
         ],
         "rows": [
           [
-            "added",
-            "The variables block's version 2: \"version\": 2, \"names\", \"defaults\" (each name's default, any JSON value: the code's own constant, never an org's value) and \"deploy\"; pubrules.variables.upgrade reads version 1 as 2 through its transformer (version: 2, defaults: {}), defaults() reads a block's defaults and canonical() compares them; sync --check takes either version"
+            "fixed",
+            "sync reads a prerelease pubtest in the lock (pubtestrules==0.5.0rc1) as no release, pinning the release state's or latest instead of 0.5.0, and a requirements-pubrules.txt template without exactly one '# pubtest floor: X.Y.Z' line stops pubrules with a message naming that line instead of a TypeError"
+          ],
+          [
+            "changed",
+            "pubrules service-needs asks for a live run (mode live) for a check or fulfil, prints 'Watch this run: PAGE' with the run's page, links the approval box there, and ends a run a person stopped with exit 1"
+          ],
+          [
+            "removed",
+            "actions/retry, actions/apt-install, actions/terraform-init and actions/pr-label are now pubactions' (Sustenaut/pubactions v0.1.0): pubrules' workflows use them at pubactions' release commit, and a caller pins Sustenaut/pubactions/actions/<name>@<commit> in place of Sustenaut/pubrules/actions/<name>; pubrules keeps actions/cache. job-service-terraform.yml and service-ci.yml read pubrules.json's mirror.terraform and give it to terraform-init as its mirror input, as before"
           ]
         ]
       },
       "depends": [
         "#identity"
       ],
-      "scope": "the published release v0.49.1 of pubrules",
+      "scope": "the published release v0.50.0 of pubrules",
       "sources": [
         {
           "ref": "pubrules",
-          "revision": "cc7604e1fbc52cf3dcefd86b09c9d2b357b16fce"
+          "revision": "d224b533542652caf6c44aa77c2fa2214713507a"
         }
       ]
     }
