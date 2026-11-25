@@ -961,15 +961,33 @@ the board. How a repository is protected stays in its own `pubrules.json`'s
 protect block. `pubrules protect [--check] --repos FILE` reads it; pubfleet reads
 the same file, and makes it from an owner's state file.
 
-A repository's `pubrules.json` may name the GitHub variables it reads, never their
-values, and the workflow that takes them in:
+A repository's `pubrules.json` may name the GitHub variables it reads, never an org's
+values, the default each takes when nothing sets it, and the workflow that takes them in:
 
 ```json
-"variables": { "names": ["SOME_SETTING", "SOME_MAP"], "deploy": "deploy.yml" }
+"variables": { "version": 2,
+               "names": ["INGEST_SWEEP_SECONDS", "SOME_MAP"],
+               "defaults": { "INGEST_SWEEP_SECONDS": "120" },
+               "deploy": "deploy.yml" }
 ```
 
-`pubrules sync --check` refuses a block of the wrong shape. The values are in the
-owner's state file, which pubfleet keeps GitHub to.
+A default is the code's own constant, what the repository does with the variable
+unset, never an org's value: the values are in the owner's state file, which pubfleet
+keeps GitHub to, and they only override a default. It is any JSON value, as a state
+file's variables are: a string, `null` (unset is a state of its own, such as off), or
+JSON, and it is compared canonically (`pubrules.variables.canonical`). Every name in
+`defaults` is one of `names`.
+
+A deploy renders a variable nothing sets as `""`, so the code that reads a defaulted
+variable takes `""` as unset, as it takes a variable that isn't there: never
+`os.environ.get(NAME, default)` or Node's `??`, which give `""` back. Each repository
+keeps a scenario that holds its `pubrules.json` default to the code's constant, and
+`""` to giving it.
+
+Version 1, a block with no `version`, is `names` and `deploy` alone. Every reader takes
+a block through `pubrules.variables.upgrade`, whose step from version 1 adds
+`"version": 2` and `"defaults": {}`. `pubrules sync --check` takes either version, and
+refuses a block of the wrong shape.
 
 ## The nightly
 
