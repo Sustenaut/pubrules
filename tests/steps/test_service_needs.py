@@ -136,6 +136,7 @@ def request(state: str, needs: dict | None = None, error: str = "", note: str = 
               for k, v in (needs or {}).items()]
     return {"id": "20261117T100000Z-ab12", "kind": "fulfil", "state": state, "unit": "example",
             "url": "https://convergence.example/approvals/20261117T100000Z-ab12", "expires_at": "2026-11-18T10:00:00Z",
+            "run": "https://convergence.example/runs/20261117T100000Z-ab12",
             "plan": [{"need": "k8s.secret:s", "state": "missing",
                       "change": "the fulfil makes it: k8s.secret:s is missing"}],
             "result": {"needs": listed, "error": error, "note": note}}
@@ -191,7 +192,7 @@ def _answer(text: str):
     return request(text.strip('"'))
 
 
-@given(parsers.re(r"the engine answers the request with (?!.*refuses)(?P<answers>.+?)(?P<every> every time)?$"))
+@given(parsers.re(r"the engine answers the request with (?!.*refuses)(?!.*naming the run page)(?P<answers>.+?)(?P<every> every time)?$"))
 def engine_answers(poll, answers, every):
     poll.engine.answers = [_answer(a) for a in answers.split(", then ")]
 
@@ -235,9 +236,9 @@ def each_once(poll, states):
     assert sum(golive.SAID["awaiting"] in line for line in said) == 1, said
 
 
-@then("the job summary links the approval page")
+@then("the job summary links the run's page, where a person approves it")
 def links_page(poll):
-    assert any("**Approval needed.**" in s and "(https://convergence.example/approvals/20261117T100000Z-ab12)" in s
+    assert any("**Approval needed.**" in s and "(https://convergence.example/runs/20261117T100000Z-ab12)" in s
                for s in poll.summary), poll.summary
 
 
@@ -260,6 +261,28 @@ def waited(poll, waits):
 @then(parsers.parse('it printed "{text}"'))
 def printed(poll, text):
     assert any(text in line for line in poll.lines), poll.lines
+
+
+@then(parsers.parse('the engine was asked for a live "{kind}" of "{unit}"'))
+def asked_live(poll, kind, unit):
+    method, url, _, data = poll.engine.asked[0]
+    assert (method, url) == ("POST", "https://convergence.example/requests")
+    assert json.loads(data) == {"kind": kind, "unit": unit, "mode": "live"}
+
+
+@then(parsers.parse('it printed "{text}" once'))
+def printed_once(poll, text):
+    assert sum(text in line for line in poll.lines) == 1, poll.lines
+
+
+@then(parsers.parse('it printed nothing with "{text}"'))
+def printed_nothing(poll, text):
+    assert not any(text in line for line in poll.lines + poll.summary), poll.lines
+
+
+@given(parsers.re(r'the engine answers the request with (?P<answers>.+), naming the run page "(?P<page>[^"]+)"$'))
+def engine_answers_page(poll, answers, page):
+    poll.engine.answers = [{**_answer(a), "run": page} for a in answers.split(", then ")]
 
 
 @then(parsers.parse('the engine was asked for a gate with the plan "{plan}"'))
@@ -378,7 +401,7 @@ def ask_check_step(poll, unit):
 @then(parsers.parse('the job summary has the approval box, linking the request and naming "{need}"'))
 def approval_box(poll, need):
     box = next(s for s in poll.summary if "**Approval needed.**" in s)
-    assert box.startswith("> [!IMPORTANT]") and "(https://convergence.example/approvals/20261117T100000Z-ab12)" in box
+    assert box.startswith("> [!IMPORTANT]") and "(https://convergence.example/runs/20261117T100000Z-ab12)" in box
     assert f"`{need}` (missing): the fulfil makes it" in box
     assert "> It expires 2026-11-18 10:00 UTC, undecided." in box
 
