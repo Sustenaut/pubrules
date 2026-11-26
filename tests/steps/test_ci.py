@@ -646,19 +646,21 @@ def release(repo, name, version, key, value):
     assert job["needs"] == "passed"
 
 
-APP_SECRETS = {"RELEASE_APP_ID": "${{ secrets.RELEASE_APP_ID }}",
+APP_SECRETS = {"RELEASE_APP_CLIENT_ID": "${{ secrets.RELEASE_APP_CLIENT_ID }}",
                "RELEASE_APP_KEY": "${{ secrets.RELEASE_APP_KEY }}"}
+APP_ID_SECRETS = {"RELEASE_APP_ID": "${{ secrets.RELEASE_APP_ID }}",
+                  "RELEASE_APP_KEY": "${{ secrets.RELEASE_APP_KEY }}"}
+GIVEN = {"the app's client id and key": APP_SECRETS, "the app's id and key": APP_ID_SECRETS}
 
 
-@then(parsers.re(r'in "pr.yml" and "main.yml" the release is (?P<given>given|not given) '
-                 r'the release app\'s secrets$'))
+@then(parsers.re(r'in "pr.yml" and "main.yml" the release is given (?P<given>.+)$'))
 def app_secrets(repo, given):
     for name in ("pr.yml", "main.yml"):
         release = jobs(repo, name)["release"]
-        if given == "given":
-            assert release["secrets"] == APP_SECRETS, (name, release)
-        else:
+        if given == "no secrets":
             assert "secrets" not in release, (name, release)
+        else:
+            assert release["secrets"] == GIVEN[given], (name, release)
 
 
 @when(parsers.parse('every pin reader reads "{line}"'), target_fixture="read")

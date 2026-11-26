@@ -1,0 +1,4 @@
+{
+  "category": "added",
+  "change": "pubrules.json's github_app block may name an app's client_id, a variable that starts Iv, which actions/create-github-app-token takes as client-id; pubrel's release workflow, from pubrel 0.9.0 and in a repository's own, gets the release app's RELEASE_APP_CLIENT_ID in place of RELEASE_APP_ID"
+}

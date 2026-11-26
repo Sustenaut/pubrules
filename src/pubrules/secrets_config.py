@@ -19,20 +19,26 @@ from typing import Any
 BLOCK = "github_app"
 OTHERS = "secrets"
 KINDS = {"secret", "variable"}
-# Each of the three: how it goes to GitHub, and what its value looks like.
-SLOTS = {"id": "variable", "installation_id": "variable", "key": "secret"}
+# Each app value: how it goes to GitHub, and what its value looks like. The
+# three are required; client_id, which actions/create-github-app-token takes
+# in place of the app's id, may be left out.
+SLOTS = {"id": "variable", "installation_id": "variable", "key": "secret", "client_id": "variable"}
+OPTIONAL = {"client_id"}
+CLIENT_ID = re.compile(r"Iv[A-Za-z0-9.]{4,}")
 FROM = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 TO = re.compile(r"[A-Z_][A-Z0-9_]*")
 ENVIRONMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 
 
 def app_problems(block: Any) -> list[str]:
-    """What is wrong with one app's three values: one phrase each."""
+    """What is wrong with one app's values: one phrase each."""
     if not isinstance(block, dict):
-        return ["it must be an object, with id, installation_id and key"]
-    out = [f"{key} is not a setting; it takes id, installation_id and key"
+        return ["it must be an object, with id, installation_id and key, and may have client_id"]
+    out = [f"{key} is not a setting; it takes id, installation_id, key and client_id"
            for key in sorted(block.keys() - SLOTS.keys())]
     for slot in SLOTS:
+        if slot in OPTIONAL and slot not in block:
+            continue
         given = block.get(slot)
         if not isinstance(given, dict) or set(given) != {"from", "to"}:
             out.append(f"{slot} needs \"from\", its Bitwarden name, and \"to\", its GitHub name")
@@ -81,7 +87,7 @@ def plan(config: dict) -> list[dict]:
     block = config.get(BLOCK, [])
     apps = block if isinstance(block, list) else [block]
     out = [{"from": app[slot]["from"], "to": app[slot]["to"], "kind": kind, "check": slot}
-           for app in apps for slot, kind in SLOTS.items()]
+           for app in apps for slot, kind in SLOTS.items() if slot in app]
     return out + [{**entry, "check": None} for entry in config.get(OTHERS, [])]
 
 
@@ -104,6 +110,8 @@ def wrong_value(slot: str | None, value: str) -> str | None:
         return "is empty"
     if slot in ("id", "installation_id") and not (value.isascii() and value.isdigit()):
         return "is not an id: only digits are expected"
+    if slot == "client_id" and not (value.isascii() and CLIENT_ID.fullmatch(value)):
+        return "is not a client id: it starts Iv, then letters, digits and ."
     if slot == "key" and not (re.search(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", value)
                               and re.search(r"-----END [A-Z ]*PRIVATE KEY-----", value)):
         return "is not a private key: it needs its BEGIN and END lines"

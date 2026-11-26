@@ -298,22 +298,23 @@ Feature: pubrules sync writes a repository's CI from pubrules.json, with no skip
     Then "pr.yml" runs the jobs "tested, test, audit, osv, passed, release"
     And "main.yml" runs the jobs "tested, test, audit, osv, sonar, passed, release"
 
-  Scenario Outline: The release workflow gets the release app's secrets from pubrel 0.6.1
+  Scenario Outline: The release workflow gets the release app's id from pubrel 0.6.1, its client id from 0.9.0
     Given a Node repository whose ci block is '{"release": {"pubrel": "<pubrel>"}}'
     When I run pubrules "sync"
-    Then in "pr.yml" and "main.yml" the release is <given> the release app's secrets
+    Then in "pr.yml" and "main.yml" the release is given <secrets>
 
     Examples:
-      | pubrel | given     |
-      | 0.6.0  | not given |
-      | 0.6.1  | given     |
-      | 0.7.0  | given     |
-      | 1.0.0  | given     |
+      | pubrel | secrets                     |
+      | 0.6.0  | no secrets                  |
+      | 0.6.1  | the app's id and key        |
+      | 0.8.2  | the app's id and key        |
+      | 0.9.0  | the app's client id and key |
+      | 1.0.0  | the app's client id and key |
 
-  Scenario: The repository's own release workflow gets the release app's secrets
+  Scenario: The repository's own release workflow gets the release app's client id and key
     Given a Rust repository whose ci block is '{"release": {"uses": "local"}}'
     When I run pubrules "sync"
-    Then in "pr.yml" and "main.yml" the release is given the release app's secrets
+    Then in "pr.yml" and "main.yml" the release is given the app's client id and key
 
   Scenario: The release workflow comes at the pubrel the ci block names
     Given a Node repository whose ci block is '{"release": {"pubrel": "0.5.4", "with": {"semver-checks-version": "0.51.0"}}}'

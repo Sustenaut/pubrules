@@ -46,12 +46,32 @@ Feature: pubrules reads what pubrules.json says about secrets, and never a value
       | {"id": {"from": "a", "to": "GITHUB_X"}, "installation_id": {"from": "b", "to": "B"}, "key": {"from": "c", "to": "C"}}      | id's "to" must be             |
       | {"id": {"from": "a", "to": "A"}, "installation_id": {"from": "b", "to": "A"}, "key": {"from": "c", "to": "C"}}             | two of them have the same     |
       | {"id": {"from": 1, "to": 2}, "installation_id": {"from": "b", "to": "B"}, "key": {"from": "c", "to": "C"}}                 | id's "from" is not            |
+      | {"id": {"from": "a", "to": "A"}, "installation_id": {"from": "b", "to": "B"}, "key": {"from": "c", "to": "C"}, "client_id": "d"} | client_id needs "from"   |
+      | {"id": {"from": "a", "to": "A"}, "installation_id": {"from": "b", "to": "B"}, "key": {"from": "c", "to": "C"}, "client_id": {"from": "d", "to": "d"}} | client_id's "to" must be |
+      | {"id": {"from": "a", "to": "A"}, "installation_id": {"from": "b", "to": "B"}, "key": {"from": "c", "to": "C"}, "client_id": {"from": "d", "to": "A"}} | two of them have the same |
 
-  Scenario: pubrules sync takes a sound block
+  Scenario Outline: pubrules sync takes a sound block, with or without the app's client id
     Given a repository initialised as "utility"
-    And its pubrules.json has a sound github_app block
+    And its pubrules.json has a sound github_app block <with>
     When I run pubrules "sync" "--check"
     Then it prints "in step"
+
+    Examples:
+      | with                |
+      | without a client id |
+      | with a client id    |
+
+  Scenario Outline: A client id is checked for its shape, never shown
+    When pubrules checks "<value>" as a client_id
+    Then its verdict is <verdict>
+
+    Examples:
+      | value                | verdict                  |
+      | Iv23liR3RvIw58sFy12M | nothing                  |
+      | Iv1.0123456789abcdef | nothing                  |
+      | 5529889              | "is not a client id"     |
+      | iv23liR3RvIw58sFy12M | "is not a client id"     |
+      |                      | "is empty"               |
 
   Scenario Outline: sync --check refuses a signing_keys block it can't use
     Given a repository initialised as "utility"
