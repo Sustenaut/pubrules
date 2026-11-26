@@ -1,0 +1,40 @@
+# pubrules.api's surface, which tests/features/api.feature holds it to.
+# One line per name in pubrules.api.__all__, sorted: "NAME: SHAPE", where SHAPE is
+#   function(SIGNATURE)                     a function, as inspect.signature prints it
+#   class(BASES) __init__(...); method(...)  a class: its bases, __init__ and public methods
+#   pattern 'TEXT' flags=N                  a compiled regex: its text and int(flags)
+#   constant VALUE                          a str, int, float or bool, as repr prints it
+#   type REPR                               anything else, such as a type alias
+# version is recorded as "str, the installed version", with no value: it moves every release.
+# When the suite fails here, the lines after "+" in its diff are the ones to write.
+ANY_OWNER: constant '(?P<owner>[A-Za-z0-9][A-Za-z0-9-]*)/'
+AT: constant '(?:v|(?P<commit>[0-9a-f]{40})[ \\t]+#[ \\t]*v)'
+Api: type collections.abc.Callable[[str, str, typing.Any], typing.Any]
+ApiError: class(Exception) __init__(self, message: 'str', response: 'str' = '')
+HOSTING_SEP: constant 257
+PUBREL_VERSION_INPUT: pattern '(pubrel-version:\\s*v)(?P<version>[0-9][^\\s,}\'\\"]*)' flags=32
+PUBRULES_LOCK_PIN: pattern '(?:(?<=^pubrules==)|(?<=/download/v))([0-9][^/\\s\\\\]*)(?=/pubrules-|[\\s\\\\]|$)' flags=40
+RELEASE_PIN: pattern '(?P<owner>[A-Za-z0-9][A-Za-z0-9-]*)/(?P<path>pubrel/\\.github/workflows/release\\.yml@)(?:v|(?P<commit>[0-9a-f]{40})[ \\t]+#[ \\t]*v)(?P<version>[0-9][^\\s\'\\"]*)' flags=32
+VARIABLES_BLOCK: constant 'variables'
+VERSION: constant '(?P<version>[0-9][^\\s\'\\"]*)'
+confined: function(path: 'Path | str', what: 'str', also: 'tuple[Path, ...]' = ()) -> 'Path'
+conform: function(root: 'Path', config: 'dict') -> 'tuple[list[str], list[str]]'
+dnskey: function(text: 'Any') -> 'tuple[int, int, int, bytes] | None'
+gh: function(method: 'str', path: 'str', body: 'Any' = None) -> 'Any'
+gh_set: function(kind: 'str', name: 'str', repo: 'str', value: 'str', environment: 'str | None' = None) -> 'str | None'
+hosting_settings: function(config: 'dict[str, Any]') -> 'dict[str, Any]'
+on_default_branch: function(rs: 'dict') -> 'bool'
+on_release_tags: function(rs: 'dict') -> 'bool'
+pinned_pubrules: function(repo: 'Path') -> 'str | None'
+protection_entry: function(repo: 'str', config: 'Any', where: 'str') -> 'dict'
+read_repos: function(path: 'Path', command: 'str') -> 'list[dict]'
+remote_config: function(api: 'Api', repo: 'str') -> 'Any'
+remote_protection_entry: function(api: 'Api', repo: 'str') -> 'dict'
+repo_entries: function(text: 'str | bytes', where: 'str') -> 'list[dict]'
+ruleset: function(checks: 'list[str]', queue: 'bool' = True) -> 'dict'
+ruleset_differences: function(want: 'dict', have: 'dict') -> 'list[str]'
+tag_ruleset: function(release_app: 'int | None' = None) -> 'dict'
+variable_defaults: function(block: 'dict') -> 'dict[str, Any]'
+variable_name_problem: function(name: 'Any') -> 'str | None'
+variables_problems: function(block: 'Any') -> 'list[str]'
+version: str, the installed version
