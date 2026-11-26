@@ -1137,3 +1137,101 @@ Feature: pubrules sync writes a repository's CI from pubrules.json, with no skip
     Then every upload-artifact and actions/cache step in pubrules' workflows continues on error, within five minutes
     And every cache restore and save in pubrules' cache action continues on error
     And no step that runs a test command continues on error
+
+  # pubtest's cassettes: "pubtest": {"cassettes": true} keeps them in the
+  # private <owner>/<repo>-data, which every job that runs the suite checks
+  # out with the release app's token; "DIR" keeps them in the repository.
+
+  Scenario Outline: With the cassettes in the data repository, every job that runs the suite checks it out
+    Given a <language> repository whose ci block is '<ci>'
+    And pubrules.json's pubtest block is '{"cassettes": true}'
+    When I run pubrules "sync"
+    Then it succeeds
+    And in "pr.yml" the jobs "<jobs>" read the data repository, passed the release app's id and key by name
+    And in "pr.yml" no other job reads the data repository
+
+    Examples:
+      | language | ci                                                   | jobs             |
+      | Node     | {"with": {"browser-test": "npm run test:browser"}}   | test, browser    |
+      | Python   | {"with": {"browser-test": "make browser"}}           | functional, browser |
+      | Rust     | {}                                                   | functional       |
+      | service  | {"with": {"test": "make test"}}                      | tests            |
+      | content  | {"with": {"test": "make test"}}                      | tests            |
+
+  Scenario: The release app's id may be the repository's variable, as pubsec app-secrets sends it
+    Given a Python repository whose ci block is '{}'
+    And pubrules.json's pubtest block is '{"cassettes": true}'
+    When I run pubrules "sync"
+    Then in "pr.yml" the "functional" job is passed "RELEASE_APP_ID" as "${{ secrets.RELEASE_APP_ID || vars.RELEASE_APP_ID }}"
+    And in "pr.yml" the "functional" job is passed "RELEASE_APP_KEY" as "${{ secrets.RELEASE_APP_KEY }}"
+
+  Scenario: A Rust crate's functional job keeps its SonarQube Cloud token beside the release app's
+    Given a Rust repository whose ci block is '{}'
+    And pubrules.json's pubtest block is '{"cassettes": true}'
+    When I run pubrules "sync"
+    Then in "pr.yml" the "functional" job is passed "SONAR_TOKEN" as "${{ secrets.SONAR_TOKEN }}"
+
+  Scenario Outline: The data repository is read on every event the suite runs on
+    Given a Node repository whose ci block is '{"events": ["pr", "queue", "main", "nightly"]}'
+    And pubrules.json's pubtest block is '{"cassettes": true}'
+    When I run pubrules "sync"
+    Then in "<name>" the jobs "test" read the data repository, passed the release app's id and key by name
+
+    Examples:
+      | name        |
+      | pr.yml      |
+      | main.yml    |
+      | nightly.yml |
+
+  Scenario Outline: Without the data repository the workflows are byte for byte what they are without the block
+    Given a <language> repository whose ci block is '<ci>'
+    And pubrules.json's pubtest block is '<block>'
+    When I run pubrules "sync"
+    Then it succeeds
+    And every workflow sync wrote is byte for byte the one it writes without the pubtest block
+    And no written workflow passes "data-repo"
+
+    Examples:
+      | language | ci                                                 | block                            |
+      | Python   | {"with": {"browser-test": "make browser"}}         | {"cassettes": "tests/cassettes"} |
+      | Node     | {}                                                 | {"cassettes": false}             |
+      | service  | {"with": {"test": "make test"}}                    | {}                               |
+      | Rust     | {}                                                 | {"cassettes": "tests/cassettes"} |
+
+  Scenario Outline: Without a pubtest block no job reads the data repository or gets the release app
+    Given a <language> repository whose ci block is '<ci>'
+    When I run pubrules "sync"
+    Then it succeeds
+    And no written workflow passes "data-repo"
+    And in "pr.yml" no job but the release is passed the release app's secrets
+
+    Examples:
+      | language | ci                                                 |
+      | Node     | {"with": {"browser-test": "npm run test:browser"}} |
+      | Python   | {}                                                 |
+      | Rust     | {}                                                 |
+      | service  | {"with": {"test": "make test"}}                    |
+      | content  | {"with": {"test": "make test"}}                    |
+
+  Scenario Outline: A pubtest block pubrules cannot use stops sync with a message
+    Given a Python repository whose ci block is '{}'
+    And pubrules.json's pubtest block is '<block>'
+    When I run pubrules "sync"
+    Then it fails
+    And stderr mentions "<message>"
+
+    Examples:
+      | block                         | message                                                  |
+      | "yes"                         | pubtest block must be an object                          |
+      | {"cassettes": 1}              | cassettes must be true, false or a directory inside the repository |
+      | {"cassettes": "../elsewhere"} | cassettes must be true, false or a directory inside the repository |
+      | {"cassettes": "/tmp/c"}       | cassettes must be true, false or a directory inside the repository |
+      | {"cassettes": ""}             | cassettes must be true, false or a directory inside the repository |
+
+  Scenario: sync declares the release app's token where the suite reads the data repository
+    Given a service repository whose ci block is '{"with": {"test": "make test"}, "jobs": {"sonar": false}}'
+    And pubrules.json's pubtest block is '{"cassettes": true}'
+    And a file "integrations.json" holding "{"uses": []}"
+    When I run pubrules "sync"
+    Then the file "integrations.json" includes ""plugin": "github.app-token""
+    And the file "integrations.json" includes "".github/workflows/pr.yml""

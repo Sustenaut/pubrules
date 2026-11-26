@@ -1,0 +1,4 @@
+{
+  "category": "added",
+  "change": "python-ci.yml, node-ci.yml and service-ci.yml take the same data-repo input and optional RELEASE_APP_ID and RELEASE_APP_KEY secrets, for a hand-written caller whose suite reads pubtest's cassettes from the data repository."
+}

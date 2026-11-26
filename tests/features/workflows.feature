@@ -183,3 +183,65 @@ Feature: The reusable workflows parse as GitHub reads them
       | rust-ci.yml   |
       | node-ci.yml   |
       | python-ci.yml |
+
+  # pubrules.json's "pubtest": {"cassettes": true} gives every job that runs
+  # the suite data-repo: it reads the private <owner>/<repo>-data with a
+  # read-only token of the release app, and puts it where pubtest looks.
+
+  Scenario Outline: A job that runs the suite reads the data repository with a read-only token of the release app
+    When I parse the workflow "<workflow>"
+    Then it takes data-repo, off by default, and the release app's RELEASE_APP_ID and RELEASE_APP_KEY, optional
+    And its "<job>" job, given data-repo, mints the release app's token for the owner's data repository alone, to read its contents
+    And its "<job>" job checks the data repository out with that token, keeping no credentials, into the workspace
+    And its "<job>" job moves the data repository beside the checkout before it runs the suite
+
+    Examples:
+      | workflow                  | job        |
+      | job-node-test.yml         | test       |
+      | job-node-browser.yml      | browser    |
+      | job-python-functional.yml | functional |
+      | job-python-browser.yml    | browser    |
+      | job-rust-functional.yml   | functional |
+      | job-service-tests.yml     | tests      |
+      | node-ci.yml               | test       |
+      | node-ci.yml               | browser    |
+      | python-ci.yml             | functional |
+      | python-ci.yml             | browser    |
+      | service-ci.yml            | tests      |
+
+  Scenario: With the release app's id and key, the data step names the data repository and passes
+    When the data step runs with the release app's id and key, on a pull request from "Sustenaut/demo" to "Sustenaut/demo"
+    Then the step passes, naming the data repository "demo-data"
+
+  Scenario Outline: Without the release app's id or key, the data step fails saying what to set
+    When the data step runs with <given>, on a pull request from "Sustenaut/demo" to "Sustenaut/demo"
+    Then the step fails, with an error that names "<missing>"
+    And the error says how to set them: "./with-secrets ./pubsec app-secrets"
+    And the error names the data repository "Sustenaut/demo-data"
+
+    Examples:
+      | given                     | missing                         |
+      | the release app's key     | RELEASE_APP_ID                  |
+      | the release app's id      | RELEASE_APP_KEY                 |
+      | neither                   | RELEASE_APP_ID RELEASE_APP_KEY  |
+
+  Scenario Outline: A pull request GitHub gives no secrets fails the data step, saying why, rather than pass untested
+    When the data step runs with neither, on a pull request from "<head>" to "Sustenaut/demo"<by>
+    Then the step fails, with an error that names "<from>"
+    And the error says "The job fails rather than pass untested"
+    And the error does not say "./with-secrets"
+
+    Examples:
+      | head            | by                     | from                     |
+      | someone/demo    |                        | the fork someone/demo    |
+      | Sustenaut/demo  | , by "dependabot[bot]" | Dependabot               |
+
+  Scenario: The data repository goes beside the checkout, where pubtest finds its cassettes
+    When the step that moves the data repository runs after a checkout of it
+    Then the data repository is beside the checkout, named as the checkout with -data
+    And pubtest finds its cassettes in it, under integrations/cassettes
+
+  Scenario: A data repository the release app could not read fails the job, saying what to do
+    When the step that moves the data repository runs after the token step failed
+    Then the step fails, with an error that names "there is no such repository, or the app is not installed on it"
+    And the error says how to make one: "pubtest record --all --create-data-repo"
