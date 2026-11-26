@@ -1140,14 +1140,14 @@ Feature: pubrules sync writes a repository's CI from pubrules.json, with no skip
 
   # pubtest's cassettes: "pubtest": {"cassettes": true} keeps them in the
   # private <owner>/<repo>-data, which every job that runs the suite checks
-  # out with the release app's token; "DIR" keeps them in the repository.
+  # out with the data reader app's token; "DIR" keeps them in the repository.
 
   Scenario Outline: With the cassettes in the data repository, every job that runs the suite checks it out
     Given a <language> repository whose ci block is '<ci>'
     And pubrules.json's pubtest block is '{"cassettes": true}'
     When I run pubrules "sync"
     Then it succeeds
-    And in "pr.yml" the jobs "<jobs>" read the data repository, passed the release app's id and key by name
+    And in "pr.yml" the jobs "<jobs>" read the data repository, passed the data reader app's client id and key by name
     And in "pr.yml" no other job reads the data repository
 
     Examples:
@@ -1158,14 +1158,27 @@ Feature: pubrules sync writes a repository's CI from pubrules.json, with no skip
       | service  | {"with": {"test": "make test"}}                      | tests            |
       | content  | {"with": {"test": "make test"}}                      | tests            |
 
-  Scenario: The release app's id may be the repository's variable, as pubsec app-secrets sends it
+  Scenario: The data reader app's client id may be the repository's variable, as pubsec app-secrets sends it
     Given a Python repository whose ci block is '{}'
     And pubrules.json's pubtest block is '{"cassettes": true}'
     When I run pubrules "sync"
-    Then in "pr.yml" the "functional" job is passed "RELEASE_APP_ID" as "${{ secrets.RELEASE_APP_ID || vars.RELEASE_APP_ID }}"
-    And in "pr.yml" the "functional" job is passed "RELEASE_APP_KEY" as "${{ secrets.RELEASE_APP_KEY }}"
+    Then in "pr.yml" the "functional" job is passed "DATA_APP_CLIENT_ID" as "${{ secrets.DATA_APP_CLIENT_ID || vars.DATA_APP_CLIENT_ID }}"
+    And in "pr.yml" the "functional" job is passed "DATA_APP_KEY" as "${{ secrets.DATA_APP_KEY }}"
 
-  Scenario: A Rust crate's functional job keeps its SonarQube Cloud token beside the release app's
+  Scenario Outline: The data repository is never read with the release app, whose key can write
+    Given a <language> repository whose ci block is '<ci>'
+    And pubrules.json's pubtest block is '{"cassettes": true}'
+    When I run pubrules "sync"
+    Then in "pr.yml" no job but the release is passed the release app's secrets
+    And no written workflow passes "RELEASE_APP_ID || vars"
+
+    Examples:
+      | language | ci                                                 |
+      | Node     | {"with": {"browser-test": "npm run test:browser"}} |
+      | Rust     | {}                                                 |
+      | service  | {"with": {"test": "make test"}}                    |
+
+  Scenario: A Rust crate's functional job keeps its SonarQube Cloud token beside the data reader app's
     Given a Rust repository whose ci block is '{}'
     And pubrules.json's pubtest block is '{"cassettes": true}'
     When I run pubrules "sync"
@@ -1175,7 +1188,7 @@ Feature: pubrules sync writes a repository's CI from pubrules.json, with no skip
     Given a Node repository whose ci block is '{"events": ["pr", "queue", "main", "nightly"]}'
     And pubrules.json's pubtest block is '{"cassettes": true}'
     When I run pubrules "sync"
-    Then in "<name>" the jobs "test" read the data repository, passed the release app's id and key by name
+    Then in "<name>" the jobs "test" read the data repository, passed the data reader app's client id and key by name
 
     Examples:
       | name        |
@@ -1198,12 +1211,13 @@ Feature: pubrules sync writes a repository's CI from pubrules.json, with no skip
       | service  | {"with": {"test": "make test"}}                    | {}                               |
       | Rust     | {}                                                 | {"cassettes": "tests/cassettes"} |
 
-  Scenario Outline: Without a pubtest block no job reads the data repository or gets the release app
+  Scenario Outline: Without a pubtest block no job reads the data repository or gets an app's secrets
     Given a <language> repository whose ci block is '<ci>'
     When I run pubrules "sync"
     Then it succeeds
     And no written workflow passes "data-repo"
     And in "pr.yml" no job but the release is passed the release app's secrets
+    And no written workflow passes "DATA_APP"
 
     Examples:
       | language | ci                                                 |
@@ -1228,10 +1242,11 @@ Feature: pubrules sync writes a repository's CI from pubrules.json, with no skip
       | {"cassettes": "/tmp/c"}       | cassettes must be true, false or a directory inside the repository |
       | {"cassettes": ""}             | cassettes must be true, false or a directory inside the repository |
 
-  Scenario: sync declares the release app's token where the suite reads the data repository
+  Scenario: sync declares the data reader app's token where the suite reads the data repository
     Given a service repository whose ci block is '{"with": {"test": "make test"}, "jobs": {"sonar": false}}'
     And pubrules.json's pubtest block is '{"cassettes": true}'
     And a file "integrations.json" holding "{"uses": []}"
     When I run pubrules "sync"
     Then the file "integrations.json" includes ""plugin": "github.app-token""
     And the file "integrations.json" includes "".github/workflows/pr.yml""
+    And the file "integrations.json" includes ""name": "DATA_APP_CLIENT_ID""

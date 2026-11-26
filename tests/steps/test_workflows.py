@@ -347,16 +347,17 @@ def _reference_steps():
     return _data_steps(data["jobs"]["functional"]["steps"])
 
 
-@then("it takes data-repo, off by default, and the release app's RELEASE_APP_ID and RELEASE_APP_KEY, optional")
+@then("it takes data-repo, off by default, and the data reader app's DATA_APP_CLIENT_ID and DATA_APP_KEY, optional")
 def takes_data_repo(workflow):
     call = triggers(workflow)["workflow_call"]
     assert call["inputs"]["data-repo"]["type"] == "boolean"
     assert call["inputs"]["data-repo"]["default"] is False
-    for name in ("RELEASE_APP_ID", "RELEASE_APP_KEY"):
+    for name in ("DATA_APP_CLIENT_ID", "DATA_APP_KEY"):
         assert call["secrets"][name]["required"] is False, name
+    assert not {"RELEASE_APP_ID", "RELEASE_APP_KEY"} & set(call["secrets"])
 
 
-@then(parsers.parse('its "{job}" job, given data-repo, mints the release app\'s token for the owner\'s data '
+@then(parsers.parse('its "{job}" job, given data-repo, mints the data reader app\'s token, by its client id, for the owner\'s data '
                     'repository alone, to read its contents'))
 def mints_read_token(workflow, job):
     steps = _data_steps(workflow["data"]["jobs"][job]["steps"])
@@ -364,13 +365,14 @@ def mints_read_token(workflow, job):
     find, token = steps[0], steps[1]
     assert find["id"] == "data"
     assert 'repo="${GITHUB_REPOSITORY#*/}-data"' in find["run"]
-    assert find["env"]["HAS_ID"] == "${{ secrets.RELEASE_APP_ID != '' }}"
-    assert find["env"]["HAS_KEY"] == "${{ secrets.RELEASE_APP_KEY != '' }}"
+    assert find["env"]["CLIENT_ID"] == "${{ secrets.DATA_APP_CLIENT_ID }}"
+    assert find["env"]["HAS_KEY"] == "${{ secrets.DATA_APP_KEY != '' }}"
     assert "${{" not in find["run"]  # nothing in the messages is an expression
     assert token["uses"].startswith(APP_TOKEN)
     assert token["id"] == "data-token"
-    assert token["with"] == {"app-id": "${{ secrets.RELEASE_APP_ID }}",
-                             "private-key": "${{ secrets.RELEASE_APP_KEY }}",
+    # client-id, never the deprecated app-id (v3.1.0 on takes it).
+    assert token["with"] == {"client-id": "${{ secrets.DATA_APP_CLIENT_ID }}",
+                             "private-key": "${{ secrets.DATA_APP_KEY }}",
                              "owner": "${{ github.repository_owner }}",
                              "repositories": "${{ steps.data.outputs.repo }}",
                              "permission-contents": "read"}
@@ -409,17 +411,23 @@ def _run_step(tmp_path, step, env, cwd=None):
     return {"code": done.returncode, "out": done.stdout, "output": output.read_text()}
 
 
-GIVEN = {"the release app's id and key": ("true", "true"), "the release app's id": ("true", "false"),
-         "the release app's key": ("false", "true"), "neither": ("false", "false")}
+CLIENT_ID = "Iv23liR3RvIw58sFy12M"
+GIVEN = {"the data reader app's client id and key": (CLIENT_ID, "true"),
+         "the data reader app's client id": (CLIENT_ID, "false"),
+         "the data reader app's key": ("", "true"), "neither": ("", "false")}
+GIVEN_ID = re.compile(r'the client id "(?P<value>[^"]*)" and the data reader app\'s key')
 
 
 @when(parsers.re(r'the data step runs with (?P<given>.+?), on a pull request from "(?P<head>[^"]+)" to '
                  r'"(?P<base>[^"]+)"(?:, by "(?P<actor>[^"]+)")?$'), target_fixture="step")
 def run_data_step(tmp_path, given, head, base, actor):
-    has_id, has_key = GIVEN[given]
+    if m := GIVEN_ID.fullmatch(given):
+        client_id, has_key = m["value"], "true"
+    else:
+        client_id, has_key = GIVEN[given]
     return _run_step(tmp_path, _reference_steps()[0], {
         "GITHUB_REPOSITORY": base, "GITHUB_REPOSITORY_OWNER": base.split("/")[0], "HEAD": head,
-        "ACTOR": actor or "someone", "HAS_ID": has_id, "HAS_KEY": has_key})
+        "ACTOR": actor or "someone", "CLIENT_ID": client_id, "HAS_KEY": has_key})
 
 
 @then(parsers.parse('the step passes, naming the data repository "{name}"'))

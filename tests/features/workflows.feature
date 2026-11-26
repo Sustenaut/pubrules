@@ -186,12 +186,12 @@ Feature: The reusable workflows parse as GitHub reads them
 
   # pubrules.json's "pubtest": {"cassettes": true} gives every job that runs
   # the suite data-repo: it reads the private <owner>/<repo>-data with a
-  # read-only token of the release app, and puts it where pubtest looks.
+  # read-only token of the data reader app, and puts it where pubtest looks.
 
-  Scenario Outline: A job that runs the suite reads the data repository with a read-only token of the release app
+  Scenario Outline: A job that runs the suite reads the data repository with a read-only token of the data reader app
     When I parse the workflow "<workflow>"
-    Then it takes data-repo, off by default, and the release app's RELEASE_APP_ID and RELEASE_APP_KEY, optional
-    And its "<job>" job, given data-repo, mints the release app's token for the owner's data repository alone, to read its contents
+    Then it takes data-repo, off by default, and the data reader app's DATA_APP_CLIENT_ID and DATA_APP_KEY, optional
+    And its "<job>" job, given data-repo, mints the data reader app's token, by its client id, for the owner's data repository alone, to read its contents
     And its "<job>" job checks the data repository out with that token, keeping no credentials, into the workspace
     And its "<job>" job moves the data repository beside the checkout before it runs the suite
 
@@ -209,11 +209,11 @@ Feature: The reusable workflows parse as GitHub reads them
       | python-ci.yml             | browser    |
       | service-ci.yml            | tests      |
 
-  Scenario: With the release app's id and key, the data step names the data repository and passes
-    When the data step runs with the release app's id and key, on a pull request from "Sustenaut/demo" to "Sustenaut/demo"
+  Scenario: With the data reader app's client id and key, the data step names the data repository and passes
+    When the data step runs with the data reader app's client id and key, on a pull request from "Sustenaut/demo" to "Sustenaut/demo"
     Then the step passes, naming the data repository "demo-data"
 
-  Scenario Outline: Without the release app's id or key, the data step fails saying what to set
+  Scenario Outline: Without the data reader app's client id or key, the data step fails saying what to set
     When the data step runs with <given>, on a pull request from "Sustenaut/demo" to "Sustenaut/demo"
     Then the step fails, with an error that names "<missing>"
     And the error says how to set them: "./with-secrets ./pubsec app-secrets"
@@ -221,9 +221,24 @@ Feature: The reusable workflows parse as GitHub reads them
 
     Examples:
       | given                     | missing                         |
-      | the release app's key     | RELEASE_APP_ID                  |
-      | the release app's id      | RELEASE_APP_KEY                 |
-      | neither                   | RELEASE_APP_ID RELEASE_APP_KEY  |
+      | the data reader app's key        | DATA_APP_CLIENT_ID              |
+      | the data reader app's client id  | DATA_APP_KEY                    |
+      | neither                          | DATA_APP_CLIENT_ID DATA_APP_KEY |
+
+  Scenario Outline: A client id that does not start Iv fails the data step, before any token is minted
+    When the data step runs with the client id "<value>" and the data reader app's key, on a pull request from "Sustenaut/demo" to "Sustenaut/demo"
+    Then the step fails, with an error that names "DATA_APP_CLIENT_ID must be the data reader app's client id, which starts Iv"
+    And the error does not say "<value>"
+
+    Examples:
+      | value     |
+      | 5529889   |
+      | Iv1       |
+      | lv23abcd  |
+
+  Scenario: A client id the app has passes the data step
+    When the data step runs with the client id "Iv23liR3RvIw58sFy12M" and the data reader app's key, on a pull request from "Sustenaut/demo" to "Sustenaut/demo"
+    Then the step passes, naming the data repository "demo-data"
 
   Scenario Outline: A pull request GitHub gives no secrets fails the data step, saying why, rather than pass untested
     When the data step runs with neither, on a pull request from "<head>" to "Sustenaut/demo"<by>
@@ -241,7 +256,7 @@ Feature: The reusable workflows parse as GitHub reads them
     Then the data repository is beside the checkout, named as the checkout with -data
     And pubtest finds its cassettes in it, under integrations/cassettes
 
-  Scenario: A data repository the release app could not read fails the job, saying what to do
+  Scenario: A data repository the data reader app could not read fails the job, saying what to do
     When the step that moves the data repository runs after the token step failed
     Then the step fails, with an error that names "there is no such repository, or the app is not installed on it"
     And the error says how to make one: "pubtest record --all --create-data-repo"

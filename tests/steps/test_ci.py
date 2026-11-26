@@ -1206,8 +1206,8 @@ def entry_tags(entry, tags):
 
 # pubtest's cassettes in the data repository.
 
-DATA_SECRETS = {"RELEASE_APP_ID": "${{ secrets.RELEASE_APP_ID || vars.RELEASE_APP_ID }}",
-                "RELEASE_APP_KEY": "${{ secrets.RELEASE_APP_KEY }}"}
+DATA_SECRETS = {"DATA_APP_CLIENT_ID": "${{ secrets.DATA_APP_CLIENT_ID || vars.DATA_APP_CLIENT_ID }}",
+                "DATA_APP_KEY": "${{ secrets.DATA_APP_KEY }}"}
 
 
 @given(parsers.parse("pubrules.json's pubtest block is '{text}'"))
@@ -1221,8 +1221,8 @@ def _reads_data(job):
     return job.get("with", {}).get("data-repo") is True
 
 
-@then(parsers.parse('in "{name}" the jobs "{names}" read the data repository, passed the release app\'s id '
-                    'and key by name'))
+@then(parsers.parse('in "{name}" the jobs "{names}" read the data repository, passed the data reader app\'s '
+                    'client id and key by name'))
 def reads_data(repo, name, names):
     found = jobs(repo, name)
     for job in names.split(", "):
@@ -1238,7 +1238,7 @@ def no_other_reads(repo, name):
     assert readers <= suites, readers
     for job, spec in jobs(repo, name).items():
         if job not in readers and job != "release":
-            assert "RELEASE_APP_KEY" not in spec.get("secrets", {}), job
+            assert "DATA_APP_KEY" not in spec.get("secrets", {}), job
 
 
 @then(parsers.parse('in "{name}" the "{job}" job is passed "{secret}" as "{value}"'))

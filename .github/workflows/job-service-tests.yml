@@ -1,5 +1,5 @@
 # A service's tests, without secrets: tests that need one are the
-# repository's to skip. Only the release app's id and key reach it, and only
+# repository's to skip. Only the data reader app's client id and key reach it,
 # to read the data repository's cassettes (data-repo). The coverage report
 # the test command writes, if any, goes to the sonar job as the `coverage`
 # artifact.
@@ -18,10 +18,10 @@ on:
       setup: { type: string, default: '', description: 'Prepares the tests, for example make venv. Empty skips it.' }
       test: { type: string, required: true, description: Runs the tests. }
       coverage-report: { type: string, default: coverage/, description: "The coverage the test command writes, if any (Cobertura XML or LCOV lcov.info), which the sonar job reads." }
-      data-repo: { type: boolean, default: false, description: "Check out the private <owner>/<repo>-data beside the checkout, where pubtest finds its cassettes, with a read-only token of the release app (RELEASE_APP_ID, RELEASE_APP_KEY); pubrules sync gives it from pubrules.json's \"pubtest\": {\"cassettes\": true}." }
+      data-repo: { type: boolean, default: false, description: "Check out the private <owner>/<repo>-data beside the checkout, where pubtest finds its cassettes, with a read-only token of the data reader app (DATA_APP_CLIENT_ID, DATA_APP_KEY); pubrules sync gives it from pubrules.json's \"pubtest\": {\"cassettes\": true}." }
     secrets:
-      RELEASE_APP_ID: { required: false, description: "The release GitHub App's id: with RELEASE_APP_KEY, it reads the data repository when data-repo is true. Pass it by name." }
-      RELEASE_APP_KEY: { required: false, description: "The release GitHub App's private key (PEM)." }
+      DATA_APP_CLIENT_ID: { required: false, description: "The data reader GitHub App's client id (Iv...): with DATA_APP_KEY, it reads the data repository when data-repo is true. Pass it by name." }
+      DATA_APP_KEY: { required: false, description: "The data reader GitHub App's private key (PEM)." }
 
 jobs:
   tests:
@@ -30,40 +30,45 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       # pubrules.json's "pubtest": {"cassettes": true}: pubtest's cassettes are
       # in the private <owner>/<repo>-data, which pubtest reads beside the
-      # checkout, as on a developer's machine. The release app reads it, with a
-      # token for that one repository that can only read its contents. A pull
-      # request from a fork, or Dependabot's, gets no secrets, so the job fails
-      # saying why rather than pass a suite it could not run.
+      # checkout, as on a developer's machine. The data reader app reads it
+      # (contents and metadata read, nothing else), with a token for that one
+      # repository that can only read its contents. A pull request from a
+      # fork, or Dependabot's, gets no secrets, so the job fails saying why
+      # rather than pass a suite it could not run.
       - if: inputs.data-repo
         id: data
-        name: Check the release app can reach the data repository
+        name: Check the data reader app can reach the data repository
         run: |
           repo="${GITHUB_REPOSITORY#*/}-data"
           echo "repo=$repo" >> "$GITHUB_OUTPUT"
-          [ "$HAS_ID" = true ] && [ "$HAS_KEY" = true ] && exit 0
+          if [ -n "$CLIENT_ID" ] && [ "$HAS_KEY" = true ]; then
+            [[ "$CLIENT_ID" =~ ^Iv[A-Za-z0-9.]{4,}$ ]] && exit 0
+            echo "::error title=DATA_APP_CLIENT_ID is not a client id::DATA_APP_CLIENT_ID must be the data reader app's client id, which starts Iv, then letters, digits and ., not its numeric app id."
+            exit 1
+          fi
           from=
           if [ "$HEAD" != "$GITHUB_REPOSITORY" ]; then from="the fork $HEAD"
           elif [ "$ACTOR" = 'dependabot[bot]' ]; then from=Dependabot; fi
           if [ -n "$from" ]; then
-            echo "::error title=No cassettes for this pull request::It comes from $from, and GitHub gives it no secrets, so the release app cannot read $GITHUB_REPOSITORY_OWNER/$repo, where pubtest's cassettes are, and the suite cannot run. The job fails rather than pass untested: a maintainer runs the suite by pushing the branch to $GITHUB_REPOSITORY and opening the pull request from there."
+            echo "::error title=No cassettes for this pull request::It comes from $from, and GitHub gives it no secrets, so the data reader app cannot read $GITHUB_REPOSITORY_OWNER/$repo, where pubtest's cassettes are, and the suite cannot run. The job fails rather than pass untested: a maintainer runs the suite by pushing the branch to $GITHUB_REPOSITORY and opening the pull request from there."
             exit 1
           fi
-          missing=$([ "$HAS_ID" = true ] || printf 'RELEASE_APP_ID '; [ "$HAS_KEY" = true ] || printf 'RELEASE_APP_KEY')
-          echo "::error title=The release app's credentials did not reach this job::Missing: ${missing% }. pubrules.json's \"pubtest\": {\"cassettes\": true} reads pubtest's cassettes from the private $GITHUB_REPOSITORY_OWNER/$repo with the release app: its id (a secret or a variable) as RELEASE_APP_ID and its private key (a secret) as RELEASE_APP_KEY. Set them as organization secrets that reach this repository (on GitHub Free those reach public repositories only), or on this repository with ./with-secrets ./pubsec app-secrets, from a github_app block whose id goes to RELEASE_APP_ID and key to RELEASE_APP_KEY."
+          missing=$([ -n "$CLIENT_ID" ] || printf 'DATA_APP_CLIENT_ID '; [ "$HAS_KEY" = true ] || printf 'DATA_APP_KEY')
+          echo "::error title=The data reader app's credentials did not reach this job::Missing: ${missing% }. pubrules.json's \"pubtest\": {\"cassettes\": true} reads pubtest's cassettes from the private $GITHUB_REPOSITORY_OWNER/$repo with the data reader app: its client id (a secret or a variable, starting Iv) as DATA_APP_CLIENT_ID and its private key (a secret) as DATA_APP_KEY. Set them as organization secrets selected for this repository, or on this repository with ./with-secrets ./pubsec app-secrets, from a github_app block whose client_id goes to DATA_APP_CLIENT_ID and key to DATA_APP_KEY."
           exit 1
         env:
           HEAD: '${{ github.event.pull_request.head.repo.full_name || github.repository }}'
           ACTOR: '${{ github.actor }}'
-          HAS_ID: ${{ secrets.RELEASE_APP_ID != '' }}
-          HAS_KEY: ${{ secrets.RELEASE_APP_KEY != '' }}
+          CLIENT_ID: ${{ secrets.DATA_APP_CLIENT_ID }}
+          HAS_KEY: ${{ secrets.DATA_APP_KEY != '' }}
       - if: inputs.data-repo
         id: data-token
-        name: Mint the release app's token, which can only read the data repository
+        name: Mint the data reader app's token, which can only read the data repository
         continue-on-error: true
         uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
-          app-id: '${{ secrets.RELEASE_APP_ID }}'
-          private-key: '${{ secrets.RELEASE_APP_KEY }}'
+          client-id: '${{ secrets.DATA_APP_CLIENT_ID }}'
+          private-key: '${{ secrets.DATA_APP_KEY }}'
           owner: '${{ github.repository_owner }}'
           repositories: '${{ steps.data.outputs.repo }}'
           permission-contents: read
@@ -80,7 +85,7 @@ jobs:
         name: Put the data repository beside the checkout, where pubtest looks
         run: |
           if [ "$TOKEN" != success ]; then
-            echo "::error title=No data repository::The release app could not read $GITHUB_REPOSITORY_OWNER/$REPO: there is no such repository, or the app is not installed on it. pubtest record --all --create-data-repo creates it, private, from a checkout beside it; then the app's installation must include it."
+            echo "::error title=No data repository::The data reader app could not read $GITHUB_REPOSITORY_OWNER/$REPO: there is no such repository, or the app is not installed on it. pubtest record --all --create-data-repo creates it, private, from a checkout beside it; then the app's installation must include it."
             exit 1
           fi
           beside="$(dirname "$GITHUB_WORKSPACE")/$(basename "$GITHUB_WORKSPACE")-data"

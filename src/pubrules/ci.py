@@ -75,12 +75,13 @@ the suite (Node's test and browser, Python's functional and browser, Rust's
 functional, a service's or content repository's tests) checks out the
 private `<owner>/<repo>-data`, where pubtest's cassettes are, and moves it
 beside the checkout, where pubtest looks, as on a developer's machine: input
-data-repo, with the release app's RELEASE_APP_ID (a secret, or the
-repository's variable) and RELEASE_APP_KEY, passed by name, for a token of
-that one repository that can only read its contents. A missing id, key or
-data repository fails the job, saying what to set. A pull request from a
-fork, or Dependabot's, gets no secrets, so the job fails saying so, rather
-than pass a suite it could not run. `"cassettes": "DIR"`, which keeps them in
+data-repo, with the data reader app's DATA_APP_CLIENT_ID (a secret, or the
+repository's variable, starting Iv) and DATA_APP_KEY, passed by name, for a
+token of that one repository that can only read its contents. A missing
+client id or key, a client id that does not start Iv, or a missing data
+repository fails the job, saying what to set. A pull request from a fork,
+or Dependabot's, gets no secrets, so the job fails saying so, rather than
+pass a suite it could not run. `"cassettes": "DIR"`, which keeps them in
 the repository itself, and no pubtest block, change nothing.
 
 A repository that deploys a static site with a deploy-static action (a
@@ -177,7 +178,7 @@ class Job:
     matrix: bool = False
     # It runs the repository's suite, on pubtest's steps: with pubrules.json's
     # "pubtest": {"cassettes": true} it checks out the data repository, where
-    # pubtest's cassettes are (input data-repo, and the release app's secrets).
+    # pubtest's cassettes are (input data-repo, and the data reader app's secrets).
     suite: bool = False
 
 
@@ -472,11 +473,13 @@ def settings(config: dict[str, Any], root: Path) -> dict[str, Any] | None:
 PUBTEST = "pubtest"
 CASSETTES = ('cassettes must be true, false or a directory inside the repository, such as '
              '"tests/cassettes"')
-# What the suite's jobs are passed to read the data repository: the release
-# app's id, an organization's or the repository's secret or the repository's
-# variable (pubsec app-secrets sends an app's id as a variable), and its key.
-DATA_SECRETS = {"RELEASE_APP_ID": "${{ secrets.RELEASE_APP_ID || vars.RELEASE_APP_ID }}",
-                "RELEASE_APP_KEY": "${{ secrets.RELEASE_APP_KEY }}"}
+# What the suite's jobs are passed to read the data repository: the Sustenaut
+# data reader app's (contents and metadata read, nothing else) client id, which
+# actions/create-github-app-token takes in place of the deprecated app id, an
+# organization's or the repository's secret or the repository's variable
+# (pubsec app-secrets sends an app's client_id as a variable), and its key.
+DATA_SECRETS = {"DATA_APP_CLIENT_ID": "${{ secrets.DATA_APP_CLIENT_ID || vars.DATA_APP_CLIENT_ID }}",
+                "DATA_APP_KEY": "${{ secrets.DATA_APP_KEY }}"}
 
 
 def data_repo(config: dict[str, Any]) -> bool:
@@ -850,6 +853,11 @@ INTEGRATIONS = "integrations.json"
 WITH_SECRETS = "with-secrets"
 OIDC = "github.actions-oidc"
 APP_TOKEN = "github.app-token"
+# The integrations scan's github.app-token knows an app's *_APP_ID and *_APP_KEY,
+# not its client id: the data reader's is declared as a secret of its own.
+CLIENT_ID_SECRET = {"name": "DATA_APP_CLIENT_ID",
+                    "reason": "The Sustenaut data reader GitHub App's client id, for actions/create-github-app-token's "
+                              "client-id (github.app-token, declared)"}
 SERVICE_NEEDS = ".github/workflows/service-needs.yml"  # service_needs.CALLER
 
 
@@ -858,7 +866,8 @@ def declared(root: Path, wanted: list[tuple[str, str]], gone: frozenset[str] = f
     workflow pubrules writes that takes SONAR_TOKEN listed under a sonarcloud use, adding
     them to "sonarcloud.scan" where none lists them, and the service-needs caller, whose OIDC
     token is GitHub's identity, under "github.actions-oidc", and every workflow whose suite reads the
-    data repository with the release app's token, under "github.app-token". None where the repository keeps no
+    data repository with the data reader app's token, under "github.app-token", with its client id
+    DATA_APP_CLIENT_ID under "other_secrets". None where the repository keeps no
     integrations.json, or one that isn't JSON, which the scan reports itself. A path
     already listed, by name or by a pattern, leaves the file as it is, byte for byte;
     nothing else is taken out, since something else may need it, but for the paths this
@@ -897,10 +906,17 @@ def declared(root: Path, wanted: list[tuple[str, str]], gone: frozenset[str] = f
     oidc = [p for u in uses if u.get("plugin") == OIDC for p in u.get("paths") or [] if isinstance(p, str)]
     identity = [name for name, body in wanted if name == SERVICE_NEEDS and "id-token: write" in body
                 and not any(name == p or fnmatch(name, p) for p in oidc)]
-    # The suite's jobs that mint the release app's token to read the data repository.
+    # The suite's jobs that mint the data reader app's token to read the data repository.
     tokens = [p for u in uses if u.get("plugin") == APP_TOKEN for p in u.get("paths") or [] if isinstance(p, str)]
     reader = [name for name, body in wanted if name.startswith(".github/workflows/") and '"data-repo": true' in body
               and not any(name == p or fnmatch(name, p) for p in tokens)]
+    others = data.get("other_secrets", [])
+    client_id = (any('"data-repo": true' in body for name, body in wanted if name.startswith(".github/workflows/"))
+                 and isinstance(others, list)
+                 and not any(isinstance(e, dict) and e.get("name") == CLIENT_ID_SECRET["name"] for e in others))
+    if client_id:
+        data["other_secrets"] = [*others, dict(CLIENT_ID_SECRET)]
+        moved = True
     for use in uses:
         paths = use.get("paths")
         if use.get("plugin") == OIDC and isinstance(paths, list) and set(paths) & gone:
