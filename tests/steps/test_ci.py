@@ -1204,3 +1204,62 @@ def read_entry(repo):
 def entry_tags(entry, tags):
     assert entry["tags"] is (tags == "true"), entry
     assert entry["release_app"] is None, entry
+
+
+# pubtest's cassettes in the data repository.
+
+DATA_SECRETS = {"DATA_APP_CLIENT_ID": "${{ secrets.DATA_APP_CLIENT_ID || vars.DATA_APP_CLIENT_ID }}",
+                "DATA_APP_KEY": "${{ secrets.DATA_APP_KEY }}"}
+
+
+@given(parsers.parse("pubrules.json's pubtest block is '{text}'"))
+def pubtest_block(repo, text):
+    config = json.loads((repo / "pubrules.json").read_text())
+    config["pubtest"] = json.loads(text)
+    (repo / "pubrules.json").write_text(json.dumps(config))
+
+
+def _reads_data(job):
+    return job.get("with", {}).get("data-repo") is True
+
+
+@then(parsers.parse('in "{name}" the jobs "{names}" read the data repository, passed the data reader app\'s '
+                    'client id and key by name'))
+def reads_data(repo, name, names):
+    found = jobs(repo, name)
+    for job in names.split(", "):
+        assert _reads_data(found[job]), (job, found[job])
+        assert DATA_SECRETS.items() <= found[job]["secrets"].items(), (job, found[job])
+
+
+@then(parsers.parse('in "{name}" no other job reads the data repository'))
+def no_other_reads(repo, name):
+    readers = {job for job, spec in jobs(repo, name).items() if _reads_data(spec)}
+    suites = {n for n, job in ci.JOBS[ci.settings(json.loads((repo / "pubrules.json").read_text()), repo)[
+        "language"]].items() if job.suite}
+    assert readers <= suites, readers
+    for job, spec in jobs(repo, name).items():
+        if job not in readers and job != "release":
+            assert "DATA_APP_KEY" not in spec.get("secrets", {}), job
+
+
+@then(parsers.parse('in "{name}" the "{job}" job is passed "{secret}" as "{value}"'))
+def passed_secret(repo, name, job, secret, value):
+    assert jobs(repo, name)[job]["secrets"][secret] == value
+
+
+@then("every workflow sync wrote is byte for byte the one it writes without the pubtest block")
+def same_without_block(repo):
+    # Both from the tree as sync left it (its tests/ directory changes the scan's layout).
+    config = json.loads((repo / "pubrules.json").read_text())
+    written = ci.generated(config, repo)
+    del config["pubtest"]
+    assert written
+    assert written == ci.generated(config, repo)
+
+
+@then(parsers.parse('in "{name}" no job but the release is passed the release app\'s secrets'))
+def app_only_release(repo, name):
+    for job, spec in jobs(repo, name).items():
+        if job != "release":
+            assert not {"RELEASE_APP_ID", "RELEASE_APP_KEY"} & set(spec.get("secrets", {})), job

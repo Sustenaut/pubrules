@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import fnmatch
+import os
 import re
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -327,3 +329,174 @@ def sonar_warns(workflow):
     assert "::notice::" in step["run"]
     assert step["env"]["FORK"] == "${{ github.event.pull_request.head.repo.fork || false }}"
     assert "${{" not in step["run"]  # nothing in the message is an expression
+
+
+# The data repository, where pubtest's cassettes are.
+
+CHECKOUT = "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09"
+APP_TOKEN = "actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc"
+DATA_PATH = ".pubrules-data"
+
+
+def _data_steps(steps):
+    return [s for s in steps if str(s.get("if", "")).startswith("inputs.data-repo")]
+
+
+def _reference_steps():
+    data = yaml.safe_load((WORKFLOWS / "job-python-functional.yml").read_text())
+    return _data_steps(data["jobs"]["functional"]["steps"])
+
+
+@then("it takes data-repo, off by default, and the data reader app's DATA_APP_CLIENT_ID and DATA_APP_KEY, optional")
+def takes_data_repo(workflow):
+    call = triggers(workflow)["workflow_call"]
+    assert call["inputs"]["data-repo"]["type"] == "boolean"
+    assert call["inputs"]["data-repo"]["default"] is False
+    for name in ("DATA_APP_CLIENT_ID", "DATA_APP_KEY"):
+        assert call["secrets"][name]["required"] is False, name
+    assert not {"RELEASE_APP_ID", "RELEASE_APP_KEY"} & set(call["secrets"])
+
+
+@then(parsers.parse('its "{job}" job, given data-repo, mints the data reader app\'s token, by its client id, for the owner\'s data '
+                    'repository alone, to read its contents'))
+def mints_read_token(workflow, job):
+    steps = _data_steps(workflow["data"]["jobs"][job]["steps"])
+    assert steps == _reference_steps()  # one block, the same in every workflow
+    find, token = steps[0], steps[1]
+    assert find["id"] == "data"
+    assert 'repo="${GITHUB_REPOSITORY#*/}-data"' in find["run"]
+    assert find["env"]["CLIENT_ID"] == "${{ secrets.DATA_APP_CLIENT_ID }}"
+    assert find["env"]["HAS_KEY"] == "${{ secrets.DATA_APP_KEY != '' }}"
+    assert "${{" not in find["run"]  # nothing in the messages is an expression
+    assert token["uses"].startswith(APP_TOKEN)
+    assert token["id"] == "data-token"
+    # client-id, never the deprecated app-id (v3.1.0 on takes it).
+    assert token["with"] == {"client-id": "${{ secrets.DATA_APP_CLIENT_ID }}",
+                             "private-key": "${{ secrets.DATA_APP_KEY }}",
+                             "owner": "${{ github.repository_owner }}",
+                             "repositories": "${{ steps.data.outputs.repo }}",
+                             "permission-contents": "read"}
+    # Its failure is reported by the step after it, which says what to do.
+    assert token["continue-on-error"] is True
+
+
+@then(parsers.parse('its "{job}" job checks the data repository out with that token, keeping no credentials, '
+                    'into the workspace'))
+def checks_out_data(workflow, job):
+    checkout = _data_steps(workflow["data"]["jobs"][job]["steps"])[2]
+    assert checkout["if"] == "inputs.data-repo && steps.data-token.outcome == 'success'"
+    assert checkout["uses"].startswith(CHECKOUT)
+    assert checkout["with"] == {
+        "repository": "${{ github.repository_owner }}/${{ steps.data.outputs.repo }}",
+        "token": "${{ steps.data-token.outputs.token }}",
+        "path": DATA_PATH,  # actions/checkout keeps a path inside the workspace
+        "persist-credentials": False}
+
+
+@then(parsers.parse('its "{job}" job moves the data repository beside the checkout before it runs the suite'))
+def moves_before_suite(workflow, job):
+    steps = workflow["data"]["jobs"][job]["steps"]
+    assert steps[0]["uses"].startswith(CHECKOUT) and "with" not in steps[0]
+    # Straight after the repository's own checkout, before anything runs.
+    assert steps[1:5] == _data_steps(steps)
+    assert f'mv {DATA_PATH} "$beside"' in steps[4]["run"]
+
+
+def _run_step(tmp_path, step, env, cwd=None):
+    output = tmp_path / "github-output"
+    output.write_text("")
+    done = subprocess.run(  # GitHub's default for `run`: bash -e.
+        ["bash", "-e", "-c", step["run"]], capture_output=True, text=True, check=False, cwd=cwd or tmp_path,
+        env={"PATH": os.environ["PATH"], "GITHUB_OUTPUT": str(output), **env})
+    return {"code": done.returncode, "out": done.stdout, "output": output.read_text()}
+
+
+CLIENT_ID = "Iv23liR3RvIw58sFy12M"
+GIVEN = {"the data reader app's client id and key": (CLIENT_ID, "true"),
+         "the data reader app's client id": (CLIENT_ID, "false"),
+         "the data reader app's key": ("", "true"), "neither": ("", "false")}
+GIVEN_ID = re.compile(r'the client id "(?P<value>[^"]*)" and the data reader app\'s key')
+
+
+@when(parsers.re(r'the data step runs with (?P<given>.+?), on a pull request from "(?P<head>[^"]+)" to '
+                 r'"(?P<base>[^"]+)"(?:, by "(?P<actor>[^"]+)")?$'), target_fixture="step")
+def run_data_step(tmp_path, given, head, base, actor):
+    if m := GIVEN_ID.fullmatch(given):
+        client_id, has_key = m["value"], "true"
+    else:
+        client_id, has_key = GIVEN[given]
+    return _run_step(tmp_path, _reference_steps()[0], {
+        "GITHUB_REPOSITORY": base, "GITHUB_REPOSITORY_OWNER": base.split("/")[0], "HEAD": head,
+        "ACTOR": actor or "someone", "CLIENT_ID": client_id, "HAS_KEY": has_key})
+
+
+@then(parsers.parse('the step passes, naming the data repository "{name}"'))
+def step_passes(step, name):
+    assert step["code"] == 0, step
+    assert step["output"] == f"repo={name}\n"
+    assert "::error" not in step["out"]
+
+
+@then(parsers.parse('the step fails, with an error that names "{text}"'))
+def step_fails_naming(step, text):
+    assert step["code"] != 0, step
+    (error,) = [line for line in step["out"].splitlines() if line.startswith("::error")]
+    assert text in error, error
+
+
+def _error(step):
+    return next(line for line in step["out"].splitlines() if line.startswith("::error"))
+
+
+@then(parsers.re(r'the error (?:says|says how to set them:|says how to make one:|names the data repository) '
+                 r'"(?P<text>[^"]+)"$'))
+def error_says(step, text):
+    assert text in _error(step), _error(step)
+
+
+@then(parsers.parse('the error does not say "{text}"'))
+def error_not(step, text):
+    assert text not in _error(step), _error(step)
+
+
+def _move(tmp_path, outcome):
+    workspace = tmp_path / "work" / "demo" / "demo"
+    (workspace / DATA_PATH / "integrations" / "cassettes").mkdir(parents=True)
+    (workspace / "pubrules.json").write_text('{"kind": "utility", "pubtest": {"cassettes": true}}\n')
+    # A data repository an earlier run on the same runner left.
+    (workspace.parent / "demo-data" / "stale").mkdir(parents=True)
+    step = _reference_steps()[3]
+    found = _run_step(tmp_path, step, {"GITHUB_WORKSPACE": str(workspace), "GITHUB_REPOSITORY_OWNER": "Sustenaut",
+                                        "TOKEN": outcome, "REPO": "demo-data"}, cwd=workspace)
+    return {**found, "workspace": workspace}
+
+
+@when("the step that moves the data repository runs after a checkout of it", target_fixture="step")
+def move_data(tmp_path):
+    return _move(tmp_path, "success")
+
+
+@when("the step that moves the data repository runs after the token step failed", target_fixture="step")
+def move_without_token(tmp_path):
+    return _move(tmp_path, "failure")
+
+
+@then("the data repository is beside the checkout, named as the checkout with -data")
+def beside(step):
+    assert step["code"] == 0, step
+    workspace = step["workspace"]
+    data = workspace.parent / f"{workspace.name}-data"
+    assert (data / "integrations" / "cassettes").is_dir()
+    assert not (data / "stale").exists()
+    assert not (workspace / DATA_PATH).exists()
+
+
+@then("pubtest finds its cassettes in it, under integrations/cassettes")
+def pubtest_finds(step):
+    from pubtest import cassettes  # noqa: PLC0415
+
+    workspace = step["workspace"]
+    found = cassettes.settings(workspace, env={})
+    assert found.data_repo == workspace.parent / "demo-data"
+    assert found.cassettes == workspace.parent / "demo-data" / "integrations" / "cassettes"
+    assert found.cassettes.is_dir()

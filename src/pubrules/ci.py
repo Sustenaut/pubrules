@@ -72,6 +72,20 @@ which installs Rust on a runner without it; an older pubrel's runs on
 GitHub's runners. Without it nothing is written, and every job runs on
 ubuntu-latest.
 
+With pubrules.json's `"pubtest": {"cassettes": true}`, every job that runs
+the suite (Node's test and browser, Python's functional and browser, Rust's
+functional, a service's or content repository's tests) checks out the
+private `<owner>/<repo>-data`, where pubtest's cassettes are, and moves it
+beside the checkout, where pubtest looks, as on a developer's machine: input
+data-repo, with the data reader app's DATA_APP_CLIENT_ID (a secret, or the
+repository's variable, starting Iv) and DATA_APP_KEY, passed by name, for a
+token of that one repository that can only read its contents. A missing
+client id or key, a client id that does not start Iv, or a missing data
+repository fails the job, saying what to set. A pull request from a fork,
+or Dependabot's, gets no secrets, so the job fails saying so, rather than
+pass a suite it could not run. `"cassettes": "DIR"`, which keeps them in
+the repository itself, and no pubtest block, change nothing.
+
 A repository that deploys a static site with a deploy-static action (a
 workflow of its own uses it, or pubrules.json has a `site` block) gets a `site` job in pr.yml (and queue.yml): it builds the site
 (`site.pr_build`, else `site.build`, else nothing) and runs the
@@ -164,6 +178,10 @@ class Job:
     # Its runners come from an input of its own (os-matrix), so `runs-on`
     # does not reach it.
     matrix: bool = False
+    # It runs the repository's suite, on pubtest's steps: with pubrules.json's
+    # "pubtest": {"cassettes": true} it checks out the data repository, where
+    # pubtest's cassettes are (input data-repo, and the data reader app's secrets).
+    suite: bool = False
 
 
 NODE_TEST = ("node-version", "python-version", "apt-packages", "setup", "test", "sync-check",
@@ -172,12 +190,13 @@ PYTHON_TEST = ("python-version", "apt-packages", "setup", "test", "sync-check",
                "coverage-report", "fuzz-runs", "fuzz-runs-scheduled")
 SONAR_INTERNAL = ("reports", "layout", "coverage-run")
 RUST_REQUIRED = ("required",)
+DATA_REPO = ("data-repo",)
 JOBS: dict[str, dict[str, Job]] = {
     "node": {
-        "test": Job("job-node-test.yml", NODE_TEST),
+        "test": Job("job-node-test.yml", NODE_TEST, internal=DATA_REPO, suite=True),
         "browser": Job("job-node-browser.yml",
                        ("node-version", "apt-packages", "setup", "browser-setup", "browser-test",
-                        "browser-coverage-report"), when="browser-test"),
+                        "browser-coverage-report"), when="browser-test", internal=DATA_REPO, suite=True),
         "audit": Job("job-node-audit.yml", ("node-version",)),
         "osv": Job("job-osv.yml"),
         "review": Job("job-review.yml", events=("pr",)),
@@ -186,10 +205,10 @@ JOBS: dict[str, dict[str, Job]] = {
                      internal=SONAR_INTERNAL),
     },
     "python": {
-        "functional": Job("job-python-functional.yml", PYTHON_TEST),
+        "functional": Job("job-python-functional.yml", PYTHON_TEST, internal=DATA_REPO, suite=True),
         "browser": Job("job-python-browser.yml",
                        ("python-version", "apt-packages", "setup", "browser-setup", "browser-test",
-                        "browser-coverage-report"), when="browser-test"),
+                        "browser-coverage-report"), when="browser-test", internal=DATA_REPO, suite=True),
         "lint": Job("job-python-lint.yml", ("python-version", "setup", "lint"), when="lint"),
         "audit": Job("job-python-audit.yml", ("python-version", "audit-requirements")),
         "osv": Job("job-osv.yml"),
@@ -207,7 +226,7 @@ JOBS: dict[str, dict[str, Job]] = {
         "functional": Job("job-rust-functional.yml",
                           ("python-version", "apt-packages", "functional",
                            "cargo-llvm-cov-version"), needs=("gates",), secrets=True,
-                          internal=(*RUST_REQUIRED, "tools"), standard="functional"),
+                          internal=(*RUST_REQUIRED, "tools", *DATA_REPO), standard="functional", suite=True),
         "msrv": Job("job-rust-msrv.yml", needs=("gates",), events=HEAVY, standard="msrv"),
         "fuzz": Job("job-rust-fuzz.yml",
                     ("python-version", "fuzz-seconds", "fuzz-seconds-scheduled", "cargo-fuzz-version"),
@@ -232,7 +251,7 @@ JOBS: dict[str, dict[str, Job]] = {
         "checks": Job("job-service-checks.yml", ("python-version", "shellcheck", "sync-check")),
         "terraform": Job("job-service-terraform.yml", ("terraform-dir",), when="terraform-dir"),
         "tests": Job("job-service-tests.yml", ("python-version", "apt-packages", "setup", "test", "coverage-report"),
-                     when="test"),
+                     when="test", internal=DATA_REPO, suite=True),
         "lint": Job("job-python-lint.yml", ("python-version", "setup", "lint"), when="lint"),
         "sonar": Job("job-sonar.yml", ("sonar-args",), needs=("tests",), secrets=True,
                      fixed={"reports": "sonar.python.coverage.reportPaths=*.xml "
@@ -248,7 +267,7 @@ JOBS: dict[str, dict[str, Job]] = {
         "checks": Job("job-service-checks.yml", ("python-version", "shellcheck", "sync-check"),
                       defaults={"shellcheck": "**/*.sh"}),
         "tests": Job("job-service-tests.yml", ("python-version", "apt-packages", "setup", "test", "coverage-report"),
-                     when="test"),
+                     when="test", internal=DATA_REPO, suite=True),
     },
 }
 # Kinds that never release: a service deploys, and content is versioned, if
@@ -460,7 +479,43 @@ def settings(config: dict[str, Any], root: Path) -> dict[str, Any] | None:
     return {"language": language, "events": [e for e in EVENTS if e in events], "cron": cron,
             "with": inputs, "jobs": jobs, "release": release, "layout": layout(language, root),
             "site": site(config, root), "tools": listed, "runs-on": runners,
-            "targets": rules["targets"] if rules else {}}
+            "targets": rules["targets"] if rules else {}, "data-repo": data_repo(config)}
+
+
+# pubtest's cassettes, by pubrules.json's pubtest block (pubtest's GRAMMAR.md,
+# "Record and replay"): true keeps them in the private data repository,
+# <owner>/<repo>-data, which pubtest reads beside the checkout; "DIR" keeps them
+# in the repository itself, which its own checkout brings.
+PUBTEST = "pubtest"
+CASSETTES = ('cassettes must be true, false or a directory inside the repository, such as '
+             '"tests/cassettes"')
+# What the suite's jobs are passed to read the data repository: the Sustenaut
+# data reader app's (contents and metadata read, nothing else) client id, which
+# actions/create-github-app-token takes in place of the deprecated app id, an
+# organization's or the repository's secret or the repository's variable
+# (pubsec app-secrets sends an app's client_id as a variable), and its key.
+DATA_SECRETS = {"DATA_APP_CLIENT_ID": "${{ secrets.DATA_APP_CLIENT_ID || vars.DATA_APP_CLIENT_ID }}",
+                "DATA_APP_KEY": "${{ secrets.DATA_APP_KEY }}"}
+
+
+def data_repo(config: dict[str, Any]) -> bool:
+    """Whether the suite's jobs check out the data repository: pubrules.json's
+    "pubtest": {"cassettes": true}. False without the block, with "cassettes":
+    false or with a directory of the repository's own."""
+    block = config.get(PUBTEST)
+    if block is None:
+        return False
+    if not isinstance(block, dict):
+        sys.exit('pubrules: pubrules.json\'s pubtest block must be an object, such as {"cassettes": true}')
+    cassettes = block.get("cassettes", False)
+    if isinstance(cassettes, str):
+        rel = Path(cassettes)
+        if not cassettes.strip() or "\n" in cassettes or rel.is_absolute() or ".." in rel.parts:
+            sys.exit(f"pubrules: pubrules.json's pubtest {CASSETTES}, not {json.dumps(cassettes)}")
+        return False
+    if not isinstance(cassettes, bool):
+        sys.exit(f"pubrules: pubrules.json's pubtest {CASSETTES}, not {json.dumps(cassettes)}")
+    return cassettes
 
 
 def pinned_pubrel(config: dict[str, Any], root: Path) -> str:
@@ -671,6 +726,9 @@ def workflow(ci: dict[str, Any], event: str) -> str:
             given["tools"] = json.dumps(ci["tools"])
         if "layout" in job.internal and ci["layout"]:
             given["layout"] = ci["layout"]
+        data = job.suite and ci["data-repo"]
+        if data:
+            given["data-repo"] = True
         if not job.matrix:
             given.update(runs_with(ci, name))
         needs = [n for n in job.needs if n in names]
@@ -708,8 +766,10 @@ def workflow(ci: dict[str, Any], event: str) -> str:
         # By name, not `secrets: inherit`: GitHub hands inherited secrets
         # only to a reusable workflow of the caller's own owner, and drops
         # them without a word for pubrules', once the two owners differ.
-        if job.secrets:
-            out.append("    secrets: { SONAR_TOKEN: '${{ secrets.SONAR_TOKEN }}' }\n")
+        secrets = {**({"SONAR_TOKEN": "${{ secrets.SONAR_TOKEN }}"} if job.secrets else {}),
+                   **(DATA_SECRETS if data else {})}
+        if secrets:
+            out.append(f"    secrets: {{ {', '.join(f'{k}: {v!r}' for k, v in secrets.items())} }}\n")
     if ci["site"] and event in SITE_EVENTS:
         names = [*names, "site"]
         out.append(site_job(ci))
@@ -808,6 +868,12 @@ def path(event: str) -> str:
 INTEGRATIONS = "integrations.json"
 WITH_SECRETS = "with-secrets"
 OIDC = "github.actions-oidc"
+APP_TOKEN = "github.app-token"
+# The integrations scan's github.app-token knows an app's *_APP_ID and *_APP_KEY,
+# not its client id: the data reader's is declared as a secret of its own.
+CLIENT_ID_SECRET = {"name": "DATA_APP_CLIENT_ID",
+                    "reason": "The Sustenaut data reader GitHub App's client id, for actions/create-github-app-token's "
+                              "client-id (github.app-token, declared)"}
 SERVICE_NEEDS = ".github/workflows/service-needs.yml"  # service_needs.CALLER
 
 
@@ -815,7 +881,9 @@ def declared(root: Path, wanted: list[tuple[str, str]], gone: frozenset[str] = f
     """integrations.json as it must read for the integrations scan to pass: every
     workflow pubrules writes that takes SONAR_TOKEN listed under a sonarcloud use, adding
     them to "sonarcloud.scan" where none lists them, and the service-needs caller, whose OIDC
-    token is GitHub's identity, under "github.actions-oidc". None where the repository keeps no
+    token is GitHub's identity, under "github.actions-oidc", and every workflow whose suite reads the
+    data repository with the data reader app's token, under "github.app-token", with its client id
+    DATA_APP_CLIENT_ID under "other_secrets". None where the repository keeps no
     integrations.json, or one that isn't JSON, which the scan reports itself. A path
     already listed, by name or by a pattern, leaves the file as it is, byte for byte;
     nothing else is taken out, since something else may need it, but for the paths this
@@ -854,14 +922,25 @@ def declared(root: Path, wanted: list[tuple[str, str]], gone: frozenset[str] = f
     oidc = [p for u in uses if u.get("plugin") == OIDC for p in u.get("paths") or [] if isinstance(p, str)]
     identity = [name for name, body in wanted if name == SERVICE_NEEDS and "id-token: write" in body
                 and not any(name == p or fnmatch(name, p) for p in oidc)]
+    # The suite's jobs that mint the data reader app's token to read the data repository.
+    tokens = [p for u in uses if u.get("plugin") == APP_TOKEN for p in u.get("paths") or [] if isinstance(p, str)]
+    reader = [name for name, body in wanted if name.startswith(".github/workflows/") and '"data-repo": true' in body
+              and not any(name == p or fnmatch(name, p) for p in tokens)]
+    others = data.get("other_secrets", [])
+    client_id = (any('"data-repo": true' in body for name, body in wanted if name.startswith(".github/workflows/"))
+                 and isinstance(others, list)
+                 and not any(isinstance(e, dict) and e.get("name") == CLIENT_ID_SECRET["name"] for e in others))
+    if client_id:
+        data["other_secrets"] = [*others, dict(CLIENT_ID_SECRET)]
+        moved = True
     for use in uses:
         paths = use.get("paths")
         if use.get("plugin") == OIDC and isinstance(paths, list) and set(paths) & gone:
             use["paths"] = [p for p in paths if p not in gone]
             moved = True
-    if not missing and not moved and not identity:
+    if not missing and not moved and not identity and not reader:
         return INTEGRATIONS, text
-    for plugin, paths in (("sonarcloud.scan", missing), (OIDC, identity)):
+    for plugin, paths in (("sonarcloud.scan", missing), (OIDC, identity), (APP_TOKEN, reader)):
         if not paths:
             continue
         use = next((u for u in uses if u.get("plugin") == plugin), None)
