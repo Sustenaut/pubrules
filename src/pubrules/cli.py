@@ -598,8 +598,10 @@ def sync(root: Path, check: bool) -> int:
         if ruff_stale:
             print(f"pubrules: {LOCK} does not pin ruff {RUFF}, which the lint job runs; run `pubrules lock`",
                   file=sys.stderr)
-        from .refs import release_commit, stale_pins  # noqa: PLC0415
+        from .refs import branch_pins, release_commit, stale_pins  # noqa: PLC0415
         actions, unversioned = stale_pins(root, __version__, release_commit())
+        for use in branch_pins(root):
+            print(f"pubrules: warning: {use}", file=sys.stderr)
         for problem in actions:
             print(f"pubrules: {problem}", file=sys.stderr)
         for use in unversioned:

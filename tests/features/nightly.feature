@@ -110,6 +110,28 @@ Feature: The nightly keeps every pub* repository current, through a pull request
     And stderr mentions "no latest release of example-org/somefleet to read"
     And the file ".github/workflows/nightly.yml" includes "nightly.yml@v0.1.0"
 
+  Scenario: pins moves another repository's workflow pinned to a branch to its latest release, once it has one
+    Given "example-org/somescan" releases "v0.17.0"
+    And a file ".github/workflows/integrations.yml" holding "    uses: example-org/somescan/.github/workflows/scan.yml@535f06d2ca3dc14b386245c03c0af0a30cf82128 # main"
+    When I run pubrules "pins" "--no-lock"
+    Then it succeeds
+    And it prints "integrations.yml: example-org/somescan main -> 0.17.0"
+    And ".github/workflows/integrations.yml" pins "example-org/somescan" to the commit of "v0.17.0"
+
+  Scenario: pins leaves a branch pin of a repository that has no release yet, without a warning
+    Given "example-org/somescan" releases "main"
+    And a file ".github/workflows/integrations.yml" holding "    uses: example-org/somescan/.github/workflows/scan.yml@535f06d2ca3dc14b386245c03c0af0a30cf82128 # main"
+    When I run pubrules "pins" "--no-lock"
+    Then it succeeds
+    And stderr does not mention "example-org/somescan"
+    And the file ".github/workflows/integrations.yml" includes "scan.yml@535f06d2ca3dc14b386245c03c0af0a30cf82128 # main"
+
+  Scenario: sync --check says a branch pin is one the nightly moves once its repository releases, as a warning
+    Given a file "pubrules.json" holding "{"kind": "utility"}"
+    And a file ".github/workflows/integrations.yml" holding "    uses: example-org/somescan/.github/workflows/scan.yml@535f06d2ca3dc14b386245c03c0af0a30cf82128 # main"
+    When I run pubrules "sync" "--check"
+    Then stderr mentions "warning: .github/workflows/integrations.yml: example-org/somescan/.github/workflows/scan.yml is pinned to a commit of main; once example-org/somescan releases, the nightly moves it to its latest release"
+
   Scenario: pins moves another repository's action to its latest release, by its tag's commit
     Given "example-org/somehost" releases "v0.2.0"
     And a file ".github/workflows/deploy.yml" holding "      - uses: example-org/somehost/actions/docker-build@1a49eb98c9647c1b60073d55b9ca0daf3eeee5c0 # v0.1.0"

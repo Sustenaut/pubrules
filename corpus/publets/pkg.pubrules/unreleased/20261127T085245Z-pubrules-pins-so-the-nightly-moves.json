@@ -1,0 +1,4 @@
+{
+  "category": "changed",
+  "change": "pubrules pins (so the nightly) moves another repository's reusable workflow or action pinned to a branch's commit (@<commit> # main, as the integrations scan is pinned) to that repository's latest release once it has one, and leaves it quietly while it has none; sync --check says such a pin is there, as a warning only"
+}

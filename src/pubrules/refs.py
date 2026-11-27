@@ -54,6 +54,15 @@ RELEASE_PIN = re.compile(ANY_OWNER + r"(?P<path>pubrel/\.github/workflows/releas
 # pubrules the lock pins, written by sync or by hand.
 PUBRULES_PIN = re.compile(ANY_OWNER + r"(?P<path>pubrules/(?P<name>actions/[\w.-]+|"
                         r"\.github/workflows/[\w.-]+\.ya?ml)@)" + AT + VERSION)
+# Another repository's reusable workflow or action pinned to a branch's commit,
+# with the branch in a comment (`@<commit> # main`), as a repository is told to
+# pin one that does not release. Once it releases, the nightly moves such a pin
+# to its latest release, and from then on moves it as any other.
+BRANCH_PIN = re.compile(ANY_OWNER + r"(?P<repo>[A-Za-z0-9_.-]+)"
+                        r"(?P<path>/(?:\.github/workflows/[\w.-]+\.ya?ml|actions/[\w.-]+)@)"
+                        r"(?P<commit>[0-9a-f]{40})[ \t]+#[ \t]*(?P<branch>(?!v[0-9])[A-Za-z][\w./-]*)"
+                        r"(?=[ \t]*(?:$|[\r\n'\"]))", re.M)
+
 # Any use of pubrules' actions or reusable workflows, versioned or not.
 PUBRULES_USE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*/pubrules/(?:actions/[\w.-]+|"
                         r"\.github/workflows/[\w.-]+\.ya?ml)@[^\s'\"]+")
@@ -132,6 +141,20 @@ def stale_pins(root: Path, version: str, commit: str | None) -> tuple[list[str],
                 stale.append(f"{rel}: pubrules {version} has no {m['path']}; it moved out of pubrules "
                              f"(pubrules' README says where), so take the module from there")
     return stale, unversioned
+
+
+def branch_pins(root: Path) -> list[str]:
+    """Each use, in the repository's workflows, of another repository's workflow
+    or action pinned to a branch: the nightly moves it once that repository
+    releases, so it is said, never refused."""
+    out = []
+    for path in sorted((root / ".github" / "workflows").glob("*.y*ml")):
+        rel = path.relative_to(root).as_posix()
+        out += [f"{rel}: {m['owner']}/{m['repo']}{m['path'].rstrip('@')} is pinned to a commit of "
+                f"{m['branch']}; once {m['owner']}/{m['repo']} releases, the nightly moves it to its "
+                "latest release" for m in BRANCH_PIN.finditer(path.read_text(encoding="utf-8"))
+                if m["repo"].lower() not in ("pubrules", "pubrel")]
+    return out
 
 
 def owner(config: dict[str, Any] | None) -> str:
