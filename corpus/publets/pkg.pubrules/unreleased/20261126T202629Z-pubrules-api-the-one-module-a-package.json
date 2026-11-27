@@ -1,0 +1,4 @@
+{
+  "category": "added",
+  "change": "pubrules.api, the one module a package that uses pubrules as a library imports from: 31 names re-exported from protect, repos, variables, refs, freshness, nightly, conform, paths and hosting, with descriptive public names where the module's own is local (repos.read is read_repos, conform.run is conform, nightly.PUBREL_VERSION is PUBREL_VERSION_INPUT, hosting.settings is hosting_settings, and so on); tests/features/api.feature holds the surface to tests/fixtures/api.txt, each name with its signature, pattern or value, so any change to it fails the suite until recorded"
+}
