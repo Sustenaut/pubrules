@@ -990,7 +990,10 @@ request per repository on its `pubrules-nightly` branch. The commits:
    release (`source = "github.com/OWNER/REPO//PATH?ref=..."`), to that
    repository's latest release, except a `deploy.providers` package's,
    which its own bump hook moves, and the crates `nightly.pins.crates`
-   names in `Cargo.lock`. A pin moves to the commit of the new release's
+   names in `Cargo.lock`. Another repository's workflow or action pinned to
+   a branch's commit (`@<commit> # main`) moves to that repository's latest
+   release once it has one, and is left, without a warning, while it has
+   none; `sync --check` says such a pin is there, as a warning only. A pin moves to the commit of the new release's
    tag, with its version in a comment (for a module source, after the
    closing quote: `?ref=<commit>" # vX.Y.Z`), and one still pinned by tag
    moves to its commit. A pin of a pubrules action, workflow or module this

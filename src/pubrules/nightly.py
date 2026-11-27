@@ -8,7 +8,8 @@ fetches where deploy.providers lists none, with its sha256, each
 tool `ci.tools` pins by tag, to the latest release of its git repository,
 every other repository's reusable workflow a workflow pins at a release
 (a control plane's reusable workflow, say), to that repository's
-latest release, every Python package a requirements file or pyproject.toml
+latest release, and one pinned to a branch's commit (`@<commit> # main`) once
+that repository has a release, every Python package a requirements file or pyproject.toml
 pins by another repository's release wheel (`name @ https://github.com/OWNER/
 REPO/releases/download/vX.Y.Z/name-X.Y.Z-....whl`) to that repository's
 latest release, every pub* package a requirements file pins by name
@@ -54,8 +55,8 @@ from pathlib import Path
 
 from . import __version__
 from .paths import confined
-from .refs import (ANY_OWNER, AT, PUBRULES_PIN, RELEASE_PIN, TF_SOURCE, VERSION, owner_of, pubrel_commit, ref,
-                   release_commit, repin, shipped, tagged)
+from .refs import (ANY_OWNER, AT, BRANCH_PIN, PUBRULES_PIN, RELEASE_PIN, TF_SOURCE, VERSION, owner_of,
+                   pubrel_commit, ref, release_commit, repin, shipped, tagged)
 
 # A row's text, which must not start with '-' (pubrel has no `--`, so it
 # would read that as an option) or a space.
@@ -386,6 +387,25 @@ def others_by_release(text: str, name: str, skip: set[str], changes: list[str]) 
                        else f"{name}: {slug} {version} pinned to {commit}")
         return f"{slug}{m['path']}{ref(version, commit)}"
     return OTHER_PIN.sub(move, text)
+
+
+def branches_by_release(text: str, name: str, skip: set[str], changes: list[str]) -> str:
+    """`text` with each other repository's workflow or action pinned to a branch
+    (BRANCH_PIN) moved to that repository's latest release, by the commit of its
+    tag, once it has one; the moves said in `changes`. A repository that has no
+    release yet keeps its branch pin, without a warning: that is what it is
+    told to do until it releases."""
+    def move(m: re.Match[str]) -> str:
+        if m["repo"].lower() in skip:
+            return m.group(0)
+        slug = f"{m['owner']}/{m['repo']}"
+        latest = latest_release(slug)
+        if not latest or not RELEASE_TAG.fullmatch(latest):
+            return m.group(0)
+        commit = tagged(f"{os.environ.get('PUBRULES_GIT_BASE', 'https://github.com')}/{slug}", latest)
+        changes.append(f"{name}: {slug} {m['branch']} -> {latest[1:]}")
+        return f"{slug}{m['path']}{ref(latest[1:], commit)}"
+    return BRANCH_PIN.sub(move, text)
 
 
 def wheel_files(root: Path) -> list[Path]:
@@ -741,6 +761,7 @@ def pins(root: Path, pubrel: str, lock: bool = True) -> list[str]:
                 elif m["version"] == version and commit and m["commit"] != commit:
                     changes.append(f"{path.name}: {what} {version} pinned to {commit}")
             new = moved
+        new = branches_by_release(new, path.name, skip, changes)
         new = others_by_release(new, path.name, skip, changes)
         if new != text:
             path.write_text(new, encoding="utf-8")
