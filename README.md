@@ -133,7 +133,10 @@ repositories on GitHub Free have no rulesets, so there it is a summary.
 
 `pubrules.json`'s `github_app` and `secrets` blocks name the values a
 repository needs from Bitwarden and where each goes on GitHub, and `pubrules
-sync --check` refuses one it can't use. Sending them is pubsec's:
+sync --check` refuses one it can't use. An app has its `id`,
+`installation_id` and `key`, and may have its `client_id`, a variable, which
+`actions/create-github-app-token` takes as `client-id` in place of the
+deprecated `app-id`: a value that starts `Iv`. Sending them is pubsec's:
 `./with-secrets ./pubsec app-secrets [--check]` (pubsec's README, "Sending
 secrets to a repository"). `pubrules app-secrets` says so, and is removed in
 the next minor.
@@ -823,9 +826,11 @@ organization's repository, so such a repository names its release GitHub App
 with `"release_app": ID` in its entry, and its tags let that app through
 instead (without it, a repository of the one owner pubrules still knows gets that
 owner's app, with a warning): installed on the organization, with contents
-write only, and its id and private key as the organization secrets
-`RELEASE_APP_ID` and `RELEASE_APP_KEY`, which the CI `pubrules sync` writes
-passes to pubrel's release workflow (pubrel 0.6.1 and later), where `pubrel
+write only, and its client id and private key as the organization secrets
+`RELEASE_APP_CLIENT_ID` (or a variable of that name, since a client id is no
+secret) and `RELEASE_APP_KEY`, which the CI `pubrules sync`
+writes passes to pubrel's release workflow (pubrel 0.9.0 and later; 0.6.1 to
+0.8 take its id, `RELEASE_APP_ID`, in place of the client id), where `pubrel
 tag` uses the app's token. So the one way to release is the signed one:
 `pubrel prepare` on your machine, then merging the release pull request,
 after which CI runs `pubrel tag` on main. Put the tag ruleset on a

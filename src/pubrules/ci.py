@@ -45,9 +45,11 @@ change there. `release` adds pubrel's release workflow to pr.yml,
 queue.yml and main.yml, at the pubrel it names (where it names none, the one
 the workflows already pin, or else pubrel's latest release; the nightly
 moves it), passing it the
-release app's RELEASE_APP_ID and RELEASE_APP_KEY from pubrel 0.6.1, the
-first to take them, so `pubrel tag` tags with the app the tag ruleset lets
-through; `false` leaves it
+release app's RELEASE_APP_CLIENT_ID and RELEASE_APP_KEY from pubrel 0.9.0,
+the first to take its client id (RELEASE_APP_ID and RELEASE_APP_KEY from
+0.6.1, the first to take them), so `pubrel tag` tags with the app the tag
+ruleset lets through; the repository's own release workflow gets the client
+id and key; `false` leaves it
 out, and a service, which deploys, has none, nor has a content repository,
 which pubrules neither releases nor deploys. A content repository's CI is
 its checks (the managed files in step, and shellcheck on its **/*.sh
@@ -302,11 +304,17 @@ DEPLOY_STATIC = re.compile(r"(?P<uses>[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+/a
 # deploy-static's `dir`, in the lines of the step that uses it.
 DEPLOY_DIR = re.compile(r"""^\s*(?:with:\s*\{[^}\n]*?\b)?dir:\s*['"]?([^'"\s,}]+)""", re.M)
 
-# The first pubrel whose release workflow takes the release app's secrets.
-# Passing a secret a reusable workflow does not declare fails the caller.
+# The first pubrel whose release workflow takes the release app's secrets,
+# and the first that takes its client id in place of its id. Passing a
+# secret a reusable workflow does not declare fails the caller.
 RELEASE_APP_FROM = (0, 6, 1)
-RELEASE_SECRETS = ("    secrets: { RELEASE_APP_ID: '${{ secrets.RELEASE_APP_ID }}', "
+RELEASE_CLIENT_ID_FROM = (0, 9, 0)
+# A client id is no secret: an organization secret, or the variable a
+# github_app block's client_id sends.
+RELEASE_SECRETS = ("    secrets: { RELEASE_APP_CLIENT_ID: '${{ secrets.RELEASE_APP_CLIENT_ID || vars.RELEASE_APP_CLIENT_ID }}', "
                    "RELEASE_APP_KEY: '${{ secrets.RELEASE_APP_KEY }}' }\n")
+RELEASE_ID_SECRETS = ("    secrets: { RELEASE_APP_ID: '${{ secrets.RELEASE_APP_ID }}', "
+                      "RELEASE_APP_KEY: '${{ secrets.RELEASE_APP_KEY }}' }\n")
 
 
 def pubrel_from(pubrel: str, first: tuple[int, int, int]) -> bool:
@@ -322,6 +330,14 @@ def pubrel_from(pubrel: str, first: tuple[int, int, int]) -> bool:
 def takes_app(pubrel: str) -> bool:
     """Whether pubrel `pubrel`'s release workflow takes the app's secrets."""
     return pubrel_from(pubrel, RELEASE_APP_FROM)
+
+
+def release_secrets(pubrel: str) -> str:
+    """The secrets line pubrel `pubrel`'s release workflow takes: the app's
+    client id and key from 0.9.0, its id and key from 0.6.1, none before."""
+    if pubrel_from(pubrel, RELEASE_CLIENT_ID_FROM):
+        return RELEASE_SECRETS
+    return RELEASE_ID_SECRETS if takes_app(pubrel) else ""
 
 
 # The first pubrel whose release workflow takes runs-on.
@@ -818,7 +834,7 @@ def workflow(ci: dict[str, Any], event: str) -> str:
             f"    uses: {ci['owner']}/pubrel/.github/workflows/release.yml"
             f"@{ref(pubrel, release['commit'])}\n"
             f"    with: {flow({'pubrel-version': f'v{pubrel}', **release['with'], **release_runner(ci, pubrel)})}\n"
-            + (RELEASE_SECRETS if takes_app(pubrel) else "")
+            + release_secrets(pubrel)
             + "    permissions:\n      contents: write\n")
     return "".join(out)
 
