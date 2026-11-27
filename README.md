@@ -919,6 +919,18 @@ freshness, and the nightly's loop), are
 [pubfleet](https://github.com/Sustenaut/pubfleet)'s. It grades protection
 against this pubrules' rulesets, as `pubrules protect --check` does.
 
+## The library surface: `pubrules.api`
+
+A package that uses pubrules as a library imports only from `pubrules.api`.
+Each name there lives in its own module, which can move or be renamed freely
+as long as `pubrules.api` still points at it; `pubrules.api.__all__` lists
+them all. `tests/features/api.feature` holds the surface to
+`tests/fixtures/api.txt`: every name with its signature, its pattern or its
+value. Any change to it fails the suite until the fixture is updated (the
+failure prints the lines to write) and the change is recorded with
+`pubrel add`: `removed` or `changed` for a name dropped or reshaped, `added`
+for a new one. Nothing inside pubrules imports `pubrules.api`.
+
 ## The repos file
 
 Which repositories `pubrules protect` acts on can come from outside it, in one file:
