@@ -827,7 +827,8 @@ with `"release_app": ID` in its entry, and its tags let that app through
 instead (without it, a repository of the one owner pubrules still knows gets that
 owner's app, with a warning): installed on the organization, with contents
 write only, and its client id and private key as the organization secrets
-`RELEASE_APP_CLIENT_ID` and `RELEASE_APP_KEY`, which the CI `pubrules sync`
+`RELEASE_APP_CLIENT_ID` (or a variable of that name, since a client id is no
+secret) and `RELEASE_APP_KEY`, which the CI `pubrules sync`
 writes passes to pubrel's release workflow (pubrel 0.9.0 and later; 0.6.1 to
 0.8 take its id, `RELEASE_APP_ID`, in place of the client id), where `pubrel
 tag` uses the app's token. So the one way to release is the signed one:

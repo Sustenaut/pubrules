@@ -290,7 +290,9 @@ DEPLOY_DIR = re.compile(r"""^\s*(?:with:\s*\{[^}\n]*?\b)?dir:\s*['"]?([^'"\s,}]+
 # secret a reusable workflow does not declare fails the caller.
 RELEASE_APP_FROM = (0, 6, 1)
 RELEASE_CLIENT_ID_FROM = (0, 9, 0)
-RELEASE_SECRETS = ("    secrets: { RELEASE_APP_CLIENT_ID: '${{ secrets.RELEASE_APP_CLIENT_ID }}', "
+# A client id is no secret: an organization secret, or the variable a
+# github_app block's client_id sends.
+RELEASE_SECRETS = ("    secrets: { RELEASE_APP_CLIENT_ID: '${{ secrets.RELEASE_APP_CLIENT_ID || vars.RELEASE_APP_CLIENT_ID }}', "
                    "RELEASE_APP_KEY: '${{ secrets.RELEASE_APP_KEY }}' }\n")
 RELEASE_ID_SECRETS = ("    secrets: { RELEASE_APP_ID: '${{ secrets.RELEASE_APP_ID }}', "
                       "RELEASE_APP_KEY: '${{ secrets.RELEASE_APP_KEY }}' }\n")

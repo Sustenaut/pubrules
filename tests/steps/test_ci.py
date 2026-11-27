@@ -646,7 +646,7 @@ def release(repo, name, version, key, value):
     assert job["needs"] == "passed"
 
 
-APP_SECRETS = {"RELEASE_APP_CLIENT_ID": "${{ secrets.RELEASE_APP_CLIENT_ID }}",
+APP_SECRETS = {"RELEASE_APP_CLIENT_ID": "${{ secrets.RELEASE_APP_CLIENT_ID || vars.RELEASE_APP_CLIENT_ID }}",
                "RELEASE_APP_KEY": "${{ secrets.RELEASE_APP_KEY }}"}
 APP_ID_SECRETS = {"RELEASE_APP_ID": "${{ secrets.RELEASE_APP_ID }}",
                   "RELEASE_APP_KEY": "${{ secrets.RELEASE_APP_KEY }}"}
